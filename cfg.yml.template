@@ -1,0 +1,50 @@
+# go_to_chat AI客服系统配置文件
+# 将此文件复制为 cfg.yml 并修改配置
+server:
+  port: 19007
+  debug: true
+
+sys:
+  name: 智能客服
+  auth: false
+
+api:
+  # LLM API 配置 (OpenAI 兼容接口)
+  llm_api_uri: https://api.deepseek.com/v1
+  llm_api_key: sk-xxx
+  llm_model_name: deepseek-chat
+
+  # Embedding API 配置 (OpenAI 兼容接口)
+  embedding_api_uri: https://api.openai.com/v1
+  embedding_api_key: sk-xxx
+  embedding_model_name: text-embedding-3-small
+
+# Milvus 向量数据库配置
+milvus:
+  # Milvus 服务地址，留空则使用本地嵌入式向量存储
+  # 远程示例: http://localhost:19530
+  uri: ""
+  # Milvus 认证 token (可选)
+  token: ""
+
+# 提示词模板
+prompts:
+  # 知识库问答提示词
+  # 可用变量: {context}, {history}, {question}, {cur_date}, {cur_week}
+  chat_msg: |
+    你是专业的AI客服，负责解答客户咨询。你必须基于以下知识库信息回答用户问题。
+    如果知识库中没有相关信息，请引导用户转接人工客服。
+
+    今日日期：{cur_date}（星期{cur_week}）
+
+    知识库内容：
+    ---
+    {context}
+    ---
+
+    历史对话：
+    {history}
+
+    用户问题：{question}
+
+    请用亲切、专业的中文回答：

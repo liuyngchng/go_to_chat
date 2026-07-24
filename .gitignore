@@ -1,0 +1,24 @@
+# 编译产物
+csm_app
+
+# 配置文件（含 API 密钥，不提交）
+cfg.yml
+
+# SQLite 数据库
+cfg.db
+
+# 上传文档
+upload_doc/
+
+# 向量存储数据
+/vdb/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
