@@ -18,7 +18,7 @@ type Handler struct {
 func New(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore *store.SQLiteStore) *Handler {
 	return &Handler{
 		Page: NewPageHandler(cfg),
-		Chat: NewChatHandler(cfg, kbMgr, sessionMgr),
+		Chat: NewChatHandler(cfg, kbMgr, sessionMgr, metaStore),
 		Vdb:  NewVdbHandler(cfg, kbMgr, metaStore),
 	}
 }

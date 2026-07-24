@@ -53,28 +53,35 @@ func (s *SQLiteStore) Close() error {
 // migrate 创建表结构
 func (s *SQLiteStore) migrate() error {
 	schema := `
-	CREATE TABLE IF NOT EXISTS vdb_info (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		uid TEXT NOT NULL DEFAULT '',
-		is_public INTEGER NOT NULL DEFAULT 0,
-		is_default INTEGER NOT NULL DEFAULT 0,
-		create_time DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
+		CREATE TABLE IF NOT EXISTS vdb_info (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			uid TEXT NOT NULL DEFAULT '',
+			is_public INTEGER NOT NULL DEFAULT 0,
+			is_default INTEGER NOT NULL DEFAULT 0,
+			create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
 
-	CREATE TABLE IF NOT EXISTS vdb_file_info (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		uid TEXT NOT NULL DEFAULT '',
-		vdb_id INTEGER NOT NULL,
-		task_id TEXT NOT NULL DEFAULT '',
-		file_path TEXT NOT NULL DEFAULT '',
-		percent REAL NOT NULL DEFAULT 0,
-		process_info TEXT NOT NULL DEFAULT '',
-		file_md5 TEXT NOT NULL DEFAULT '',
-		create_time DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	`
+		CREATE TABLE IF NOT EXISTS vdb_file_info (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			uid TEXT NOT NULL DEFAULT '',
+			vdb_id INTEGER NOT NULL,
+			task_id TEXT NOT NULL DEFAULT '',
+			file_path TEXT NOT NULL DEFAULT '',
+			percent REAL NOT NULL DEFAULT 0,
+			process_info TEXT NOT NULL DEFAULT '',
+			file_md5 TEXT NOT NULL DEFAULT '',
+			create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS prompt_template (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			value TEXT NOT NULL,
+			uid INTEGER NOT NULL DEFAULT 0
+		);
+		`
 	_, err := s.db.Exec(schema)
 	return err
 }
@@ -306,6 +313,32 @@ func (s *SQLiteStore) CheckFileMD5Exists(vdbID int64, md5 string) (*model.VdbFil
 		return nil, err
 	}
 	return &f, nil
+}
+
+// ============================================================
+// 提示词模板
+// ============================================================
+
+// GetPrompt 根据名称获取提示词模板，不存在则返回空字符串
+func (s *SQLiteStore) GetPrompt(name string) (string, error) {
+	var value string
+	err := s.db.QueryRow(
+		"SELECT value FROM prompt_template WHERE name = ?", name,
+	).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+// UpsertPrompt 插入或更新提示词模板
+func (s *SQLiteStore) UpsertPrompt(name, value string, uid int) error {
+	_, err := s.db.Exec(
+		`INSERT INTO prompt_template (name, value, uid) VALUES (?, ?, ?)
+		 ON CONFLICT(name) DO UPDATE SET value = excluded.value, uid = excluded.uid`,
+		name, value, uid,
+	)
+	return err
 }
 
 // ============================================================

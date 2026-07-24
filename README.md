@@ -1,6 +1,6 @@
-# go_to_chat — Go 语言 AI 智能客服系统
+# go_to_chat — Go 语言 AI 知识库问答系统
 
-基于知识库的 AI 智能客服，支持 LLM API、Embedding API、Milvus 向量数据库，通过 YAML 配置文件进行配置。
+基于知识库的 AI 智能问答系统，支持 LLM API、Embedding API、Milvus 向量数据库，通过 YAML 配置文件进行配置。
 
 ## 项目结构
 
@@ -151,7 +151,7 @@ server:
   debug: true       # 调试模式（生产环境设为 false）
 
 sys:
-  name: 智能客服     # 页面标题
+  name: 知识库问答     # 页面标题
   auth: false       # 是否启用认证
 
 api:
@@ -178,7 +178,7 @@ milvus:
 # 提示词模板
 prompts:
   chat_msg: |
-    你是专业的AI客服...
+    你是专业的知识库问答助手...
     可用变量: {context}, {history}, {question}, {cur_date}, {cur_week}
 ```
 

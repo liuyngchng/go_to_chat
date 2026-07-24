@@ -11,6 +11,7 @@ import (
 	"go_to_chat/internal/llm"
 	"go_to_chat/internal/model"
 	"go_to_chat/internal/session"
+	"go_to_chat/internal/store"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,10 +22,11 @@ type ChatHandler struct {
 	kbMgr      *kb.Manager
 	sessionMgr *session.Manager
 	llmClient  *llm.Client
+	store      *store.SQLiteStore
 }
 
 // NewChatHandler 创建聊天处理器
-func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager) *ChatHandler {
+func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore *store.SQLiteStore) *ChatHandler {
 	llmClient := llm.New(
 		cfg.API.LLMAPIURI,
 		cfg.API.LLMAPIKey,
@@ -36,6 +38,7 @@ func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Ma
 		kbMgr:      kbMgr,
 		sessionMgr: sessionMgr,
 		llmClient:  llmClient,
+		store:      metaStore,
 	}
 }
 
@@ -78,8 +81,9 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 
 	contextStr := h.kbMgr.SearchAllKBs(req.Msg, uid, 3, 0.1)
 
-	// 构建提示词
-	systemPrompt := buildPrompt(h.cfg.Prompts.ChatMsg, contextStr, historyStr, req.Msg, curDate, curWeek)
+	// 构建提示词：优先从数据库读取，fallback 到 YAML 配置
+	promptTemplate := h.getPromptTemplate()
+	systemPrompt := buildPrompt(promptTemplate, contextStr, historyStr, req.Msg, curDate, curWeek)
 
 	slog.Info("chat", "uid", uid, "session", sessionID, "query", req.Msg[:min(50, len(req.Msg))], "contextLen", len(contextStr))
 
@@ -156,6 +160,17 @@ func buildPrompt(template, context, history, question, curDate, curWeek string) 
 func getWeekdayCN(d time.Weekday) string {
 	days := []string{"日", "一", "二", "三", "四", "五", "六"}
 	return days[d]
+}
+
+// getPromptTemplate 从 SQLite 数据库获取提示词模板，不存在则 fallback 到 YAML 配置
+func (h *ChatHandler) getPromptTemplate() string {
+	if h.store != nil {
+		prompt, err := h.store.GetPrompt("chat_msg")
+		if err == nil && prompt != "" {
+			return prompt
+		}
+	}
+	return h.cfg.Prompts.ChatMsg
 }
 
 func min(a, b int) int {
