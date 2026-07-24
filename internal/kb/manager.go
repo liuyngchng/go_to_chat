@@ -4,7 +4,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,7 +274,7 @@ func (m *Manager) SearchInKB(query string, vdbID int64, uid string, topK int, sc
 func (m *Manager) SearchAllKBs(query string, uid string, topK int, scoreThreshold float64) string {
 	kbList, err := m.store.GetUserVdbs(uid)
 	if err != nil {
-		log.Printf("获取知识库列表失败: %v", err)
+		slog.Error("获取知识库列表失败", "error", err)
 		return ""
 	}
 
@@ -282,7 +282,7 @@ func (m *Manager) SearchAllKBs(query string, uid string, topK int, scoreThreshol
 	for _, kb := range kbList {
 		ctx, err := m.SearchInKB(query, kb.ID, uid, topK, scoreThreshold)
 		if err != nil {
-			log.Printf("搜索知识库 %s 失败: %v", kb.Name, err)
+			slog.Error("搜索知识库失败", "kb", kb.Name, "error", err)
 			continue
 		}
 		if ctx != "" {
@@ -300,14 +300,14 @@ func (m *Manager) SearchAllKBs(query string, uid string, topK int, scoreThreshol
 
 // StartFileWorker 启动后台文件处理
 func (m *Manager) StartFileWorker() {
-	log.Println("文件处理 worker 已启动")
+	slog.Info("文件处理 worker 已启动")
 	ticker := time.NewTicker(FilePollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-m.stopCh:
-			log.Println("文件处理 worker 已停止")
+			slog.Info("文件处理 worker 已停止")
 			return
 		case <-ticker.C:
 			m.processPendingFiles()
@@ -324,13 +324,13 @@ func (m *Manager) StopFileWorker() {
 func (m *Manager) processPendingFiles() {
 	files, err := m.store.GetUnprocessedFiles()
 	if err != nil {
-		log.Printf("获取待处理文件失败: %v", err)
+		slog.Error("获取待处理文件失败", "error", err)
 		return
 	}
 
 	for _, f := range files {
 		if err := m.processFile(&f); err != nil {
-			log.Printf("处理文件 %s 失败: %v", f.Name, err)
+			slog.Error("处理文件失败", "file", f.Name, "error", err)
 			m.store.UpdateFileProgress(f.ID, 0, fmt.Sprintf("处理失败: %v", err))
 		}
 	}
@@ -338,7 +338,7 @@ func (m *Manager) processPendingFiles() {
 
 // processFile 处理单个文件（向量化入库）
 func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
-	log.Printf("开始处理文件: %s (id=%d)", finfo.Name, finfo.ID)
+	slog.Info("开始处理文件", "name", finfo.Name, "id", finfo.ID)
 	m.store.UpdateFileProgress(finfo.ID, 1, "开始处理文档")
 
 	// 读取文件内容
@@ -360,7 +360,7 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 		return nil
 	}
 
-	log.Printf("文件 %s 切分为 %d 个文本块", finfo.Name, len(chunks))
+	slog.Info("文件已切分", "name", finfo.Name, "chunks", len(chunks))
 	m.store.UpdateFileProgress(finfo.ID, 5, fmt.Sprintf("已切分为 %d 个文本块，开始向量化", len(chunks)))
 
 	// 初始化向量存储
@@ -428,7 +428,7 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 	}
 
 	m.store.UpdateFileProgress(finfo.ID, 100, fmt.Sprintf("处理完成，共 %d 个文本块", totalChunks))
-	log.Printf("文件处理完成: %s", finfo.Name)
+	slog.Info("文件处理完成", "name", finfo.Name)
 	return nil
 }
 

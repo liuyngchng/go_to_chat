@@ -3,7 +3,7 @@ package vdb
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"go_to_chat/internal/model"
@@ -53,7 +53,7 @@ func (s *MilvusStore) EnsureCollection(dimension int) error {
 	}
 
 	if has {
-		log.Printf("Milvus collection 已存在: %s", s.collectionName)
+		slog.Info("Milvus collection 已存在", "name", s.collectionName)
 		return s.cli.LoadCollection(s.ctx, s.collectionName, false)
 	}
 
@@ -92,7 +92,7 @@ func (s *MilvusStore) EnsureCollection(dimension int) error {
 		return fmt.Errorf("创建索引失败: %w", err)
 	}
 
-	log.Printf("Milvus collection 已创建: %s, dim=%d", s.collectionName, dimension)
+	slog.Info("Milvus collection 已创建", "name", s.collectionName, "dim", dimension)
 
 	return s.cli.LoadCollection(s.ctx, s.collectionName, false)
 }
@@ -144,7 +144,7 @@ func (s *MilvusStore) Insert(records []model.VectorRecord) error {
 // Search 向量检索
 func (s *MilvusStore) Search(queryVector []float64, topK int, scoreThreshold float64) ([]model.SearchResult, error) {
 	if err := s.cli.LoadCollection(s.ctx, s.collectionName, false); err != nil {
-		log.Printf("LoadCollection warning: %v", err)
+		slog.Warn("LoadCollection", "error", err)
 	}
 
 	// float64 -> float32
@@ -221,11 +221,11 @@ func (s *MilvusStore) Close() error {
 // milvusURI 为空时返回 LocalStore，否则返回 MilvusStore
 func New(milvusURI, milvusToken, storePath string) (VectorStore, error) {
 	if milvusURI != "" && (strings.HasPrefix(milvusURI, "http://") || strings.HasPrefix(milvusURI, "https://")) {
-		log.Printf("使用远程 Milvus: %s", milvusURI)
+		slog.Info("使用远程 Milvus", "uri", milvusURI)
 		return NewMilvusStore(milvusURI, milvusToken)
 	}
 
-	log.Printf("使用本地向量存储: %s", storePath)
+	slog.Info("使用本地向量存储", "path", storePath)
 	return NewLocalStore(storePath)
 }
 

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +10,7 @@ import (
 	"go_to_chat/internal/config"
 	"go_to_chat/internal/handler"
 	"go_to_chat/internal/kb"
+	"go_to_chat/internal/logger"
 	"go_to_chat/internal/session"
 	"go_to_chat/internal/store"
 
@@ -17,19 +18,26 @@ import (
 )
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Println("启动 AI 客服系统...")
-
 	// 加载配置
 	cfg, err := config.Load("cfg.yml")
 	if err != nil {
-		log.Fatalf("加载配置文件失败: %v", err)
+		fmt.Fprintf(os.Stderr, "加载配置文件失败: %v\n", err)
+		os.Exit(1)
 	}
+
+	// 初始化日志
+	if err := logger.Init(cfg.Server.Debug); err != nil {
+		fmt.Fprintf(os.Stderr, "初始化日志失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	slog.Info("启动 AI 客服系统...")
 
 	// 初始化 SQLite 元数据存储
 	metaStore, err := store.NewSQLiteStore("cfg.db")
 	if err != nil {
-		log.Fatalf("初始化数据库失败: %v", err)
+		slog.Error("初始化数据库失败", "error", err)
+		os.Exit(1)
 	}
 	defer metaStore.Close()
 
@@ -83,14 +91,15 @@ func main() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
-		log.Println("正在关闭服务...")
+		slog.Info("正在关闭服务...")
 		kbManager.StopFileWorker()
 		os.Exit(0)
 	}()
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
-	log.Printf("服务启动于 http://localhost%s", addr)
+	slog.Info("服务启动", "addr", addr)
 	if err := r.Run(addr); err != nil {
-		log.Fatalf("服务启动失败: %v", err)
+		slog.Error("服务启动失败", "error", err)
+		os.Exit(1)
 	}
 }

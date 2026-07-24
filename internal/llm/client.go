@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -88,7 +88,7 @@ func (c *Client) ChatStream(systemPrompt, userMessage string) (<-chan string, <-
 				if err == io.EOF {
 					break
 				}
-				log.Printf("读取流数据出错: %v", err)
+				slog.Warn("读取流数据出错", "error", err)
 				break
 			}
 

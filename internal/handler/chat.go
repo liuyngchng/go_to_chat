@@ -2,7 +2,7 @@ package handler
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -81,8 +81,7 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	// 构建提示词
 	systemPrompt := buildPrompt(h.cfg.Prompts.ChatMsg, contextStr, historyStr, req.Msg, curDate, curWeek)
 
-	log.Printf("chat: uid=%s, session=%s, query=%s, context_len=%d",
-		uid, sessionID, req.Msg[:min(50, len(req.Msg))], len(contextStr))
+	slog.Info("chat", "uid", uid, "session", sessionID, "query", req.Msg[:min(50, len(req.Msg))], "contextLen", len(contextStr))
 
 	// 保存用户消息
 	h.sessionMgr.AddMessage(uid, sessionID, "user", req.Msg)
@@ -106,7 +105,7 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			log.Printf("LLM 错误: %v", err)
+			slog.Error("LLM 错误", "error", err)
 			fmt.Fprintf(c.Writer, "data: [错误] %v\n\n", err)
 			flusher.Flush()
 		}

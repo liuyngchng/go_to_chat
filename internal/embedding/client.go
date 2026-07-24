@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -76,7 +76,7 @@ func (c *Client) Dimension() (int, error) {
 		return 0, err
 	}
 	dim := len(vec)
-	log.Printf("embedding 模型 %s, 维度=%d", c.ModelName, dim)
+	slog.Info("embedding 模型探测", "model", c.ModelName, "dim", dim)
 	return dim, nil
 }
 
