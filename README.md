@@ -179,10 +179,10 @@ prompts:
 
 ```bash
 # 纯 Go 编译，无需任何 C 依赖
-CGO_ENABLED=0 go build -o csm_app .
+CGO_ENABLED=0 go build -o go_to_chat .
 
 # 减小二进制体积（去掉调试信息）
-CGO_ENABLED=0 go build -ldflags="-s -w" -o csm_app .
+CGO_ENABLED=0 go build -ldflags="-s -w" -o go_to_chat .
 ```
 
 ### 编译说明
@@ -191,7 +191,7 @@ CGO_ENABLED=0 go build -ldflags="-s -w" -o csm_app .
 |---|---|
 | `CGO_ENABLED=0` | 禁用 CGo，纯 Go 编译。SQLite 驱动使用 `modernc.org/sqlite`（纯 Go 实现），无需安装任何系统库 |
 | `-ldflags="-s -w"` | 去掉符号表和调试信息，大约瘦身 30% |
-| `-o csm_app` | 指定输出文件名 |
+| `-o go_to_chat` | 指定输出文件名 |
 
 > 项目使用 `modernc.org/sqlite` 纯 Go SQLite 驱动，编译产物为静态链接二进制，可直接在 `FROM scratch` 的 Docker 镜像中运行，也支持任意平台的交叉编译（如 `GOOS=linux GOARCH=arm64 go build`）。
 
@@ -199,7 +199,7 @@ CGO_ENABLED=0 go build -ldflags="-s -w" -o csm_app .
 
 ```bash
 # 确保 cfg.yml 已配置好 API 密钥
-./csm_app
+./go_to_chat
 ```
 
 启动后访问：

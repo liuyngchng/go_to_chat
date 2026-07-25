@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/schollz/progressbar/v3"
+
 	"go_to_chat/internal/embedding"
 	"go_to_chat/internal/model"
 	"go_to_chat/internal/store"
@@ -341,13 +343,24 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 	slog.Info("开始处理文件", "name", finfo.Name, "id", finfo.ID)
 	m.store.UpdateFileProgress(finfo.ID, 1, "开始处理文档")
 
-	// 读取文件内容
-	content, err := os.ReadFile(finfo.FilePath)
-	if err != nil {
-		return fmt.Errorf("读取文件失败: %w", err)
+	// 根据后缀提取文本：pdf/docx/xlsx 需要解析，txt/md 直接读
+	// 二进制文件走 extractText 流式读取，不先 os.ReadFile 避免大文件撑满内存
+	ext := strings.ToLower(filepath.Ext(finfo.FilePath))
+	var text string
+	var err error
+	switch ext {
+	case ".pdf", ".docx", ".xlsx", ".xls":
+		text, err = extractAndSaveText(finfo.FilePath)
+		if err != nil {
+			return fmt.Errorf("提取文本失败: %w", err)
+		}
+	default:
+		content, err := os.ReadFile(finfo.FilePath)
+		if err != nil {
+			return fmt.Errorf("读取文件失败: %w", err)
+		}
+		text = string(content)
 	}
-
-	text := string(content)
 	if strings.TrimSpace(text) == "" {
 		m.store.UpdateFileProgress(finfo.ID, 100, "文件内容为空")
 		return nil
@@ -384,6 +397,8 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 	absPath, _ := filepath.Abs(finfo.FilePath)
 	totalChunks := len(chunks)
 
+	bar := progressbar.Default(int64(totalChunks), fileName)
+
 	for i := 0; i < totalChunks; i += batchSize {
 		end := i + batchSize
 		if end > totalChunks {
@@ -399,6 +414,7 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 		// 批量 embedding
 		embeddings, err := m.embClient.Embed(batchTexts)
 		if err != nil {
+			bar.Finish()
 			return fmt.Errorf("embedding 失败 (batch %d-%d): %w", i, end, err)
 		}
 
@@ -415,6 +431,7 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 
 		// 插入向量存储
 		if err := vs.Insert(records); err != nil {
+			bar.Finish()
 			return fmt.Errorf("插入向量失败: %w", err)
 		}
 
@@ -425,7 +442,11 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 		}
 		m.store.UpdateFileProgress(finfo.ID, percent,
 			fmt.Sprintf("已处理 %d/%d 个文本块", end, totalChunks))
+
+		bar.Add(min(batchSize, totalChunks-i))
 	}
+
+	bar.Finish()
 
 	m.store.UpdateFileProgress(finfo.ID, 100, fmt.Sprintf("处理完成，共 %d 个文本块", totalChunks))
 	slog.Info("文件处理完成", "name", finfo.Name)

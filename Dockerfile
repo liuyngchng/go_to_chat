@@ -4,7 +4,7 @@ FROM ubuntu:24.04
 WORKDIR /opt/csm
 
 # 拷贝二进制和静态资源
-COPY csm_app .
+COPY go_to_chat .
 COPY web/ ./web/
 COPY cfg.yml.template ./cfg.yml.template
 
@@ -13,4 +13,4 @@ RUN mkdir -p upload_doc vdb
 
 EXPOSE 19007
 
-CMD ["./csm_app"]
+CMD ["./go_to_chat"]

@@ -1,5 +1,6 @@
 # 编译产物
 go_to_chat
+csm_app
 
 # 配置文件（含 API 密钥，不提交）
 cfg.yml

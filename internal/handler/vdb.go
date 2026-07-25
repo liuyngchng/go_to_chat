@@ -2,7 +2,9 @@ package handler
 
 import (
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"go_to_chat/internal/kb"
 	"go_to_chat/internal/model"
@@ -128,10 +130,16 @@ func (h *VdbHandler) Upload(c *gin.Context) {
 	}
 
 	// 检查文件类型
-	ext := file.Filename[len(file.Filename)-4:]
-	allowedExts := map[string]bool{".txt": true, ".pdf": true, "docx": true, ".md": true}
-	_ = ext
-	_ = allowedExts
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	allowedExts := map[string]bool{
+		".txt": true, ".md": true,
+		".pdf": true, ".docx": true,
+		".xlsx": true,
+	}
+	if !allowedExts[ext] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "不支持的文件格式，支持: txt, md, pdf, docx, xlsx"})
+		return
+	}
 
 	f, err := file.Open()
 	if err != nil {

@@ -3,6 +3,7 @@
 const uid = document.getElementById('uid').value;
 let currentKbId = null;
 let selectedFiles = [];
+let refreshInterval = null;
 
 // ============================================================
 // 知识库列表
@@ -45,6 +46,10 @@ document.getElementById('kb_selector').addEventListener('change', function() {
     const id = this.value;
     currentKbId = id ? parseInt(id) : null;
 
+    // 清除旧的轮询定时器
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+
     document.getElementById('deleteBtn').style.display = id ? 'inline-block' : 'none';
     document.getElementById('setDefaultBtn').style.display = id ? 'inline-block' : 'none';
 
@@ -52,6 +57,8 @@ document.getElementById('kb_selector').addEventListener('change', function() {
         loadFileList(parseInt(id));
         const selected = this.options[this.selectedIndex];
         document.getElementById('vdb_status_desc').textContent = selected.textContent;
+        // 启动 5 秒轮询自动刷新文件处理进度
+        refreshInterval = setInterval(() => loadFileList(parseInt(id)), 5000);
     } else {
         document.getElementById('fileListContainer').style.display = 'none';
         document.getElementById('vdb_status_desc').textContent = '未选择';
@@ -257,6 +264,10 @@ document.getElementById('startBtn').addEventListener('click', async function() {
 
     // 刷新文件列表
     loadFileList(currentKbId);
+    // 确保轮询已启动（如果还没启动）
+    if (!refreshInterval && currentKbId) {
+        refreshInterval = setInterval(() => loadFileList(currentKbId), 5000);
+    }
     selectedFiles = [];
     document.getElementById('fileInput').value = '';
     document.getElementById('fileCount').textContent = '0';
@@ -289,3 +300,6 @@ function formatTime(ts) {
 
 // 页面初始化
 refreshKbList();
+
+// 页面离开时清理定时器
+window.addEventListener('beforeunload', () => clearInterval(refreshInterval));
