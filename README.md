@@ -48,15 +48,14 @@ go_to_chat/
 |---|---|---|
 | `github.com/gin-gonic/gin` | Web 框架 | https://github.com/gin-gonic/gin |
 | `gopkg.in/yaml.v3` | YAML 配置解析 | https://github.com/go-yaml/yaml |
-| `github.com/mattn/go-sqlite3` | SQLite 驱动（CGo，链接系统 libsqlite3） | https://github.com/mattn/go-sqlite3 |
+| `modernc.org/sqlite` | SQLite 驱动（纯 Go 实现，无需 CGo） | https://gitlab.com/cznic/sqlite |
 | `github.com/milvus-io/milvus-sdk-go/v2` | Milvus Go SDK（可选，远程模式需要） | https://github.com/milvus-io/milvus-sdk-go |
 
 ### 系统依赖
 
 | 依赖 | 用途 | 安装命令 |
 |---|---|---|
-| Go 1.21+ | 编译运行 | `sudo apt install golang-go` 或从 https://go.dev/dl/ 下载 |
-| libsqlite3-dev | SQLite C 库（编译 go-sqlite3 需要） | `sudo apt install libsqlite3-dev` |
+| Go 1.25+ | 编译运行 | `sudo apt install golang-go` 或从 https://go.dev/dl/ 下载 |
 
 ### 前端第三方库
 
@@ -86,13 +85,7 @@ source ~/.bashrc
 go version
 ```
 
-### 2. 安装 SQLite 开发库
-
-```bash
-sudo apt install libsqlite3-dev
-```
-
-### 3. 配置 Go 代理（中国大陆用户）
+### 2. 配置 Go 代理（中国大陆用户）
 
 由于国内访问 GitHub 可能受限，需要设置 Go 代理：
 
@@ -109,7 +102,7 @@ go env GOPROXY
 
 > `goproxy.cn` 会缓存 GitHub 上的 Go 包，避免直接访问 GitHub 超时。
 
-### 4. 解决 GitHub 无法访问的问题
+### 3. 解决 GitHub 无法访问的问题
 
 如果 `goproxy.cn` 也没有缓存某些包（如 Milvus SDK），可以手动下载到本地后使用 `replace` 指令：
 
@@ -127,7 +120,7 @@ go mod edit -replace github.com/milvus-io/milvus-sdk-go/v2=/home/rd/workspace/mi
 
 > 如果你能直接访问 GitHub，不需要上面的步骤，`go mod tidy` 会自动下载。
 
-### 5. 下载依赖
+### 4. 下载依赖
 
 ```bash
 cd go_to_chat
@@ -184,35 +177,23 @@ prompts:
 
 ## 编译
 
-### 普通编译
-
 ```bash
-# 使用系统 libsqlite3（推荐，编译快）
-CGO_ENABLED=1 go build -o csm_app .
+# 纯 Go 编译，无需任何 C 依赖
+CGO_ENABLED=0 go build -o csm_app .
 
 # 减小二进制体积（去掉调试信息）
-CGO_ENABLED=1 go build -ldflags="-s -w" -o csm_app .
-```
-
-### 纯 Go 编译（无需安装 libsqlite3-dev）
-
-如果不想安装 SQLite 系统库，可以换用纯 Go 的 SQLite 实现（首次编译较慢）：
-
-```bash
-# 1. 修改 internal/store/sqlite.go:
-#    将 import 改为 _ "modernc.org/sqlite"
-#    将 sql.Open("sqlite3", ...) 改为 sql.Open("sqlite", ...)
-
-# 2. 编译
-CGO_ENABLED=0 go build -o csm_app .
+CGO_ENABLED=0 go build -ldflags="-s -w" -o csm_app .
 ```
 
 ### 编译说明
 
 | 选项 | 说明 |
 |---|---|
-| `CGO_ENABLED=1` | 启用 CGo，链接系统 C 库（libsqlite3）。编译快，但需要安装 `libsqlite3-dev` |
+| `CGO_ENABLED=0` | 禁用 CGo，纯 Go 编译。SQLite 驱动使用 `modernc.org/sqlite`（纯 Go 实现），无需安装任何系统库 |
 | `-ldflags="-s -w"` | 去掉符号表和调试信息，大约瘦身 30% |
+| `-o csm_app` | 指定输出文件名 |
+
+> 项目使用 `modernc.org/sqlite` 纯 Go SQLite 驱动，编译产物为静态链接二进制，可直接在 `FROM scratch` 的 Docker 镜像中运行，也支持任意平台的交叉编译（如 `GOOS=linux GOARCH=arm64 go build`）。
 
 ## 运行
 
