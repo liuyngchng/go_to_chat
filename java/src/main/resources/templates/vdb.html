@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/lib/font-awesome.all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=2">
+    <title>知识库管理 - {{sys_name}}</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-database"></i> 知识库管理</h1>
+            <p>管理您的知识库文档</p>
+        </header>
+
+        <!-- ========== 工具栏 ========== -->
+        <div class="vdb-toolbar">
+            <div class="vdb-toolbar-left">
+                <div class="vdb-select-group">
+                    <select id="kb_selector" class="kb-select">
+                        <option value="">请选择知识库</option>
+                    </select>
+                    <button class="kb-action-btn btn-refresh" id="kbRefreshBtn" title="刷新列表">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button class="kb-action-btn btn-star" id="setDefaultBtn" title="设为默认" style="display:none;">
+                        <i class="fas fa-star"></i>
+                    </button>
+                    <button class="kb-action-btn btn-delete" id="deleteBtn" title="删除知识库" style="display:none;">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="vdb-toolbar-center">
+                <span class="vdb-divider-text">或</span>
+            </div>
+            <div class="vdb-toolbar-right">
+                <input type="text" id="kb_name" class="kb-create-input" placeholder="输入知识库名称">
+                <label class="public-label">
+                    <input type="checkbox" id="public_checkbox">
+                    <i class="fas fa-globe"></i> 公开
+                </label>
+                <button class="btn btn-primary" id="createKB">
+                    <i class="fas fa-plus-circle"></i> 创建
+                </button>
+            </div>
+        </div>
+
+        <!-- 状态栏 -->
+        <div class="vdb-status-bar">
+            <span class="vdb-status-label">当前知识库：</span>
+            <span id="vdb_status_desc" class="vdb-status-value">未选择</span>
+            <span id="public_badge" class="badge badge-public" style="display:none;">
+                <i class="fas fa-globe"></i> 公开
+            </span>
+            <span id="default_badge" class="badge badge-default" style="display:none;">
+                <i class="fas fa-star"></i> 默认
+            </span>
+            <span id="kb_status" class="vdb-toast" style="display:none;">
+                <i class="fas fa-check-circle"></i> 操作成功
+            </span>
+        </div>
+
+        <!-- ========== 主内容区：左右双栏 ========== -->
+        <div class="vdb-main">
+            <!-- 左栏：文件列表 -->
+            <div class="vdb-panel vdb-panel-left">
+                <div class="vdb-panel-header">
+                    <h3><i class="fas fa-file-alt"></i> 文件列表</h3>
+                    <span class="vdb-panel-hint" id="fileListHint">请先选择知识库</span>
+                </div>
+                <div id="fileListContainer" class="vdb-file-table-wrap">
+                    <table id="fileListTable" class="result-table">
+                        <thead>
+                            <tr>
+                                <th style="width:50px">序号</th>
+                                <th>文件名</th>
+                                <th style="width:160px">创建时间</th>
+                                <th style="width:80px">进度</th>
+                                <th style="width:200px">详情</th>
+                                <th style="width:80px">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 右栏：上传 -->
+            <div class="vdb-panel vdb-panel-right">
+                <div class="vdb-panel-header">
+                    <h3><i class="fas fa-cloud-upload-alt"></i> 文档上传</h3>
+                </div>
+                <div class="vdb-upload-body">
+                    <div class="vdb-upload-dropzone" id="uploadDropzone">
+                        <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md,.xlsx" multiple>
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <p>拖拽文件到此处，或点击选择</p>
+                        <span class="vdb-upload-formats">支持 txt · md · pdf · docx · xlsx</span>
+                    </div>
+
+                    <div id="fileList" class="file-list-container" style="display:none;">
+                        <div class="file-list-header">
+                            <span>已选文件：<span id="fileCount">0</span></span>
+                            <button type="button" class="btn-clear-text" id="clearFilesBtn">清空</button>
+                        </div>
+                        <div id="fileItems" class="file-items"></div>
+                    </div>
+
+                    <button class="btn btn-primary btn-upload" id="startBtn">
+                        <i class="fas fa-cloud-upload-alt"></i> 开始上传
+                    </button>
+
+                    <div class="progress-display">
+                        <span class="progress-hint" id="fileUploadResult">
+                            <i class="fas fa-info-circle"></i> 请选择知识库后上传文档
+                        </span>
+                        <div id="uploadProgress" class="upload-progress" style="display: none;">
+                            <div class="progress-meter">
+                                <div id="overallProgressFill" class="progress-fill"></div>
+                            </div>
+                            <div class="progress-info">
+                                <span id="progressText">上传中...</span>
+                                <span id="progressPercent">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>{{sys_name}} - 知识库管理</p>
+        </footer>
+    </div>
+
+    <input type="hidden" id="uid" name="uid" value="{{uid}}">
+    <script src="/static/js/vdb.js?v=3"></script>
+</body>
+</html>
