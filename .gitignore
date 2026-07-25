@@ -7,6 +7,8 @@ cfg.yml
 
 # SQLite 数据库
 cfg.db
+*.db-shm
+*.db-wal
 
 # 上传文档
 upload_doc/
