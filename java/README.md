@@ -262,17 +262,3 @@ milvus:
   token: ""
 ```
 
-## 与 Go 版对照
-
-| Go | Java |
-|----|------|
-| Gin 路由 | Netty + Router |
-| goroutine + channel | Thread + 回调 |
-| embed.FS | classpath resources |
-| `slog` | Log4j2 |
-| `modernc.org/sqlite` | SQLite JDBC |
-| `database/sql` 内置连接池 | Druid |
-| `html/template` | 字符串 `{{var}}` 替换 |
-| `gopkg.in/yaml.v3` | Jackson YAML |
-| `ledongthuc/pdf` | Apache PDFBox |
-| `archive/zip + xml` | Apache POI |
