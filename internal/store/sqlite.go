@@ -28,9 +28,15 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("打开数据库失败: %w", err)
 	}
 
-	// 连接池配置
-	db.SetMaxOpenConns(1) // SQLite 单写
-	db.SetMaxIdleConns(1)
+	// WAL 模式：读不阻塞写
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("启用 WAL 失败: %w", err)
+	}
+
+	// 读多写少场景，允许多个并发读
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(time.Hour)
 
 	store := &SQLiteStore{db: db}

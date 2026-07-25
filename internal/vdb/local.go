@@ -6,17 +6,21 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 
 	"go_to_chat/internal/model"
 
 	_ "modernc.org/sqlite"
 )
 
-// LocalStore 本地 SQLite 向量存储
+// LocalStore 本地 SQLite 向量存储（内存缓存 + 持久化）
 type LocalStore struct {
-	db    *sql.DB
-	dim   int
+	db  *sql.DB
+	mu  sync.RWMutex // 保护 dim, docs
+	dim int
+
 	vdbID int64
+	docs  []vectorDoc // 内存缓存，启动时从 DB 加载，写入时同步更新
 }
 
 // NewLocalStore 创建本地向量存储
@@ -26,14 +30,26 @@ func NewLocalStore(dbPath string, vdbID int64) (*LocalStore, error) {
 		return nil, fmt.Errorf("打开向量数据库失败: %w", err)
 	}
 
-	// SQLite 单写
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// WAL 模式：读不阻塞写，写不阻塞读
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("启用 WAL 失败: %w", err)
+	}
+
+	// 读多写少场景，允许多个并发读
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 
 	store := &LocalStore{db: db, vdbID: vdbID}
 	if err := store.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("向量表初始化失败: %w", err)
+	}
+
+	// 启动时加载已有向量到内存
+	if err := store.loadMem(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("加载向量到内存失败: %w", err)
 	}
 
 	return store, nil
@@ -57,11 +73,13 @@ func (s *LocalStore) migrate() error {
 
 // EnsureCollection 确保已初始化
 func (s *LocalStore) EnsureCollection(dimension int) error {
+	s.mu.Lock()
 	s.dim = dimension
+	s.mu.Unlock()
 	return nil
 }
 
-// Insert 批量插入向量记录
+// Insert 批量插入向量记录（同时更新 DB 和内存）
 func (s *LocalStore) Insert(records []model.VectorRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -81,30 +99,60 @@ func (s *LocalStore) Insert(records []model.VectorRecord) error {
 	}
 	defer stmt.Close()
 
-	for _, r := range records {
+	newDocs := make([]vectorDoc, len(records))
+	for i, r := range records {
 		source := ""
 		if r.Meta != nil {
 			source = r.Meta["source"]
-		}
-		if s.dim == 0 && len(r.Vector) > 0 {
-			s.dim = len(r.Vector)
 		}
 
 		vecBytes := floatsToBytes(r.Vector)
 		if _, err := stmt.Exec(r.ID, s.vdbID, r.Content, vecBytes, source); err != nil {
 			return fmt.Errorf("插入向量失败: %w", err)
 		}
+
+		newDocs[i] = vectorDoc{
+			ID:      r.ID,
+			Content: r.Content,
+			Vector:  r.Vector,
+			Source:  source,
+		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// DB 写入成功 → 更新内存
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.dim == 0 && len(newDocs) > 0 && len(newDocs[0].Vector) > 0 {
+		s.dim = len(newDocs[0].Vector)
+	}
+
+	// 用 map 去重更新
+	index := make(map[string]int, len(s.docs))
+	for i, d := range s.docs {
+		index[d.ID] = i
+	}
+	for _, nd := range newDocs {
+		if pos, ok := index[nd.ID]; ok {
+			s.docs[pos] = nd
+		} else {
+			s.docs = append(s.docs, nd)
+			index[nd.ID] = len(s.docs) - 1
+		}
+	}
+
+	return nil
 }
 
-// Search 余弦相似度检索
+// Search 余弦相似度检索（从内存读取）
 func (s *LocalStore) Search(queryVector []float64, topK int, scoreThreshold float64) ([]model.SearchResult, error) {
-	docs, err := s.loadByVdbID()
-	if err != nil {
-		return nil, err
-	}
+	s.mu.RLock()
+	docs := s.docs
+	s.mu.RUnlock()
 
 	if len(docs) == 0 {
 		return nil, nil
@@ -148,7 +196,7 @@ func (s *LocalStore) Search(queryVector []float64, topK int, scoreThreshold floa
 	return formatted, nil
 }
 
-// DeleteByIDs 根据 ID 删除
+// DeleteByIDs 根据 ID 删除（同时更新 DB 和内存）
 func (s *LocalStore) DeleteByIDs(ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -179,19 +227,56 @@ func (s *LocalStore) DeleteByIDs(ids []string) error {
 		}
 	}
 
+	// 更新内存
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	filtered := make([]vectorDoc, 0, len(s.docs))
+	for _, doc := range s.docs {
+		if !idSet[doc.ID] {
+			filtered = append(filtered, doc)
+		}
+	}
+	s.docs = filtered
+
 	return nil
 }
 
-// DeleteBySource 根据 source 删除
+// DeleteBySource 根据 source 删除（同时更新 DB 和内存）
 func (s *LocalStore) DeleteBySource(source string) error {
-	_, err := s.db.Exec("DELETE FROM vectors WHERE vdb_id = ? AND source = ?", s.vdbID, source)
-	return err
+	if _, err := s.db.Exec("DELETE FROM vectors WHERE vdb_id = ? AND source = ?", s.vdbID, source); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	filtered := make([]vectorDoc, 0, len(s.docs))
+	for _, doc := range s.docs {
+		if doc.Source != source {
+			filtered = append(filtered, doc)
+		}
+	}
+	s.docs = filtered
+
+	return nil
 }
 
-// Purge 清空当前知识库的所有向量
+// Purge 清空当前知识库的所有向量（DB + 内存）
 func (s *LocalStore) Purge() error {
-	_, err := s.db.Exec("DELETE FROM vectors WHERE vdb_id = ?", s.vdbID)
-	return err
+	if _, err := s.db.Exec("DELETE FROM vectors WHERE vdb_id = ?", s.vdbID); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	s.docs = nil
+	s.mu.Unlock()
+
+	return nil
 }
 
 // Close 关闭数据库
@@ -210,10 +295,10 @@ type vectorDoc struct {
 	Source  string
 }
 
-func (s *LocalStore) loadByVdbID() ([]vectorDoc, error) {
+func (s *LocalStore) loadMem() error {
 	rows, err := s.db.Query("SELECT id, content, vector, source FROM vectors WHERE vdb_id = ?", s.vdbID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
 
@@ -222,13 +307,23 @@ func (s *LocalStore) loadByVdbID() ([]vectorDoc, error) {
 		var doc vectorDoc
 		var vecBytes []byte
 		if err := rows.Scan(&doc.ID, &doc.Content, &vecBytes, &doc.Source); err != nil {
-			return nil, err
+			return err
 		}
 		doc.Vector = bytesToFloats(vecBytes)
 		docs = append(docs, doc)
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 
-	return docs, rows.Err()
+	s.mu.Lock()
+	s.docs = docs
+	if len(docs) > 0 && s.dim == 0 {
+		s.dim = len(docs[0].Vector)
+	}
+	s.mu.Unlock()
+
+	return nil
 }
 
 // floatsToBytes 将 float64 切片转为二进制 BLOB

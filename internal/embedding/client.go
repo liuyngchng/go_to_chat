@@ -6,13 +6,29 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"go_to_chat/internal/model"
 )
 
 const MaxBatchSize = 32
+
+// 高并发 HTTP 连接池
+var embedHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+	},
+	Timeout: 60 * time.Second,
+}
 
 // Client Embedding 客户端（OpenAI 兼容接口）
 type Client struct {
@@ -28,7 +44,7 @@ func New(baseURL, apiKey, modelName string) *Client {
 		BaseURL:   strings.TrimRight(baseURL, "/"),
 		APIKey:    apiKey,
 		ModelName: modelName,
-		httpCli:   &http.Client{},
+		httpCli:   embedHTTPClient,
 	}
 }
 

@@ -8,79 +8,85 @@ import (
 )
 
 const (
-	MaxHistoryRounds   = 5    // 最多保留 5 轮（10 条消息）
-	SessionTimeout     = 30 * time.Minute
-	CleanupInterval    = 10 * time.Minute
+	MaxHistoryRounds = 5                  // 最多保留 5 轮（10 条消息）
+	SessionTimeout   = 30 * time.Minute
+	CleanupInterval  = 10 * time.Minute
 )
 
-// Manager 会话管理器（内存）
+// sessionEntry 每个会话独立锁，避免多 uid 竞争
+type sessionEntry struct {
+	mu sync.Mutex
+	h  *model.ChatHistory
+}
+
+// Manager 会话管理器（内存，sync.Map 分片）
 type Manager struct {
-	mu       sync.RWMutex
-	sessions map[string]*model.ChatHistory // key: uid + ":" + sessionID
+	sessions sync.Map // key: uid:sessionID → *sessionEntry
 }
 
 // NewManager 创建会话管理器
 func NewManager() *Manager {
-	m := &Manager{
-		sessions: make(map[string]*model.ChatHistory),
-	}
-	// 启动过期清理
+	m := &Manager{}
 	go m.cleanup()
 	return m
 }
 
 // GetHistory 获取会话历史
 func (m *Manager) GetHistory(uid, sessionID string) []model.ChatMessage {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	key := uid + ":" + sessionID
-	if h, ok := m.sessions[key]; ok {
-		// 复制一份返回，避免外部修改
-		result := make([]model.ChatMessage, len(h.Messages))
-		copy(result, h.Messages)
-		return result
+	v, ok := m.sessions.Load(key)
+	if !ok {
+		return nil
 	}
-	return nil
+
+	entry := v.(*sessionEntry)
+	entry.mu.Lock()
+	result := make([]model.ChatMessage, len(entry.h.Messages))
+	copy(result, entry.h.Messages)
+	entry.mu.Unlock()
+
+	return result
 }
 
 // AddMessage 添加消息到会话历史
 func (m *Manager) AddMessage(uid, sessionID, role, content string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	key := uid + ":" + sessionID
-	h, ok := m.sessions[key]
-	if !ok {
-		h = &model.ChatHistory{
+
+	entry := &sessionEntry{
+		h: &model.ChatHistory{
 			SessionID: sessionID,
 			UID:       uid,
 			Messages:  make([]model.ChatMessage, 0),
 			CreatedAt: time.Now(),
-		}
-		m.sessions[key] = h
+		},
 	}
 
-	h.Messages = append(h.Messages, model.ChatMessage{
+	actual, loaded := m.sessions.LoadOrStore(key, entry)
+	if loaded {
+		// 已存在，使用旧的 entry
+		entry = actual.(*sessionEntry)
+	}
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	entry.h.Messages = append(entry.h.Messages, model.ChatMessage{
 		Role:    role,
 		Content: content,
 	})
-	h.UpdatedAt = time.Now()
+	entry.h.UpdatedAt = time.Now()
 
 	// 限制历史长度（保留最近 N 轮）
 	maxMessages := MaxHistoryRounds * 2
-	if len(h.Messages) > maxMessages {
-		h.Messages = h.Messages[len(h.Messages)-maxMessages:]
+	if len(entry.h.Messages) > maxMessages {
+		entry.h.Messages = entry.h.Messages[len(entry.h.Messages)-maxMessages:]
 	}
 }
 
 // Clear 清空会话历史
 func (m *Manager) Clear(uid, sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	key := uid + ":" + sessionID
-	delete(m.sessions, key)
+	m.sessions.Delete(key)
 }
 
 // FormatHistory 格式化历史消息为字符串
@@ -106,13 +112,17 @@ func (m *Manager) cleanup() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		m.mu.Lock()
 		now := time.Now()
-		for key, h := range m.sessions {
-			if now.Sub(h.UpdatedAt) > SessionTimeout {
-				delete(m.sessions, key)
+		m.sessions.Range(func(key, value any) bool {
+			entry := value.(*sessionEntry)
+			entry.mu.Lock()
+			if now.Sub(entry.h.UpdatedAt) > SessionTimeout {
+				entry.mu.Unlock()
+				m.sessions.Delete(key)
+			} else {
+				entry.mu.Unlock()
 			}
-		}
-		m.mu.Unlock()
+			return true
+		})
 	}
 }
