@@ -44,28 +44,50 @@ async function refreshKbList() {
 // KB 选择事件
 document.getElementById('kb_selector').addEventListener('change', function() {
     const id = this.value;
+    selectKb(id);
+});
+
+// 选中知识库的核心逻辑（页面加载恢复时也复用）
+function selectKb(id) {
     currentKbId = id ? parseInt(id) : null;
 
-    // 清除旧的轮询定时器
     clearInterval(refreshInterval);
     refreshInterval = null;
 
-    document.getElementById('deleteBtn').style.display = id ? 'inline-block' : 'none';
-    document.getElementById('setDefaultBtn').style.display = id ? 'inline-block' : 'none';
+    const deleteBtn = document.getElementById('deleteBtn');
+    const starBtn = document.getElementById('setDefaultBtn');
+    const fileListContainer = document.getElementById('fileListContainer');
+    const fileListHint = document.getElementById('fileListHint');
+    const sel = document.getElementById('kb_selector');
 
     if (id) {
+        // 同步更新下拉框选中项
+        sel.value = id;
+
+        // 更新 URL hash，使刷新后能恢复选择
+        window.location.hash = 'kb=' + id;
+
+        deleteBtn.style.display = 'flex';
+        starBtn.style.display = 'flex';
         loadFileList(parseInt(id));
-        const selected = this.options[this.selectedIndex];
-        document.getElementById('vdb_status_desc').textContent = selected.textContent;
-        // 启动 5 秒轮询自动刷新文件处理进度
+        document.getElementById('vdb_status_desc').textContent = document.getElementById('kb_selector').options[sel.selectedIndex]?.textContent.replace(' ★', '') || '';
+        fileListHint.textContent = '';
+        document.getElementById('public_badge').style.display = 'inline-block';
+        document.getElementById('default_badge').style.display = sel.options[sel.selectedIndex]?.textContent.includes('★') ? 'inline-block' : 'none';
         refreshInterval = setInterval(() => loadFileList(parseInt(id)), 5000);
     } else {
-        document.getElementById('fileListContainer').style.display = 'none';
+        // 清除 hash
+        history.replaceState(null, '', window.location.pathname);
+
+        deleteBtn.style.display = 'none';
+        starBtn.style.display = 'none';
+        fileListContainer.style.display = 'none';
+        fileListHint.textContent = '请先选择知识库';
         document.getElementById('vdb_status_desc').textContent = '未选择';
         document.getElementById('public_badge').style.display = 'none';
         document.getElementById('default_badge').style.display = 'none';
     }
-});
+}
 
 // 刷新按钮
 document.getElementById('kbRefreshBtn').addEventListener('click', refreshKbList);
@@ -110,9 +132,18 @@ document.getElementById('deleteBtn').addEventListener('click', async function() 
         const resp = await fetch('/vdb/delete', { method: 'POST', body: fd });
         const data = await resp.json();
         if (data.status === 'ok') {
+            currentKbId = null;
+            history.replaceState(null, '', window.location.pathname);
             refreshKbList();
             document.getElementById('fileListContainer').style.display = 'none';
+            document.getElementById('fileListHint').textContent = '请先选择知识库';
             document.getElementById('vdb_status_desc').textContent = '未选择';
+            document.getElementById('public_badge').style.display = 'none';
+            document.getElementById('default_badge').style.display = 'none';
+            document.getElementById('deleteBtn').style.display = 'none';
+            document.getElementById('setDefaultBtn').style.display = 'none';
+            clearInterval(refreshInterval);
+            refreshInterval = null;
             showStatus('知识库已删除');
         } else {
             alert(data.error || '删除失败');
@@ -156,6 +187,7 @@ async function loadFileList(vdbId) {
         const data = await resp.json();
         renderFileList(data.data || []);
         document.getElementById('fileListContainer').style.display = 'block';
+        document.getElementById('fileListHint').textContent = (data.data || []).length + ' 个文件';
     } catch (e) {
         console.error('获取文件列表失败:', e);
     }
@@ -165,17 +197,22 @@ function renderFileList(files) {
     const tbody = document.querySelector('#fileListTable tbody');
     tbody.innerHTML = '';
 
+    if (files.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:40px;">暂无文件，请上传文档</td></tr>';
+        return;
+    }
+
     files.forEach((f, i) => {
         const tr = document.createElement('tr');
         const progressPct = Math.round(f.percent || 0);
+        const statusClass = progressPct === 100 ? 'color:#2e7d32;font-weight:600' : '';
         tr.innerHTML =
             '<td>' + (i + 1) + '</td>' +
-            '<td>' + escapeHtml(f.name) + '</td>' +
+            '<td title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</td>' +
             '<td>' + formatTime(f.create_time) + '</td>' +
-            '<td>' + progressPct + '%</td>' +
-            '<td>' + escapeHtml(f.process_info || '') + '</td>' +
-            '<td><button class="btn btn-primary btn-sm" onclick="deleteFile(' + f.id + ')">' +
-            '<i class="fas fa-trash-alt"></i> 删除</button></td>';
+            '<td style="' + statusClass + '">' + progressPct + '%</td>' +
+            '<td style="font-size:0.82rem;color:#888;">' + escapeHtml(f.process_info || '') + '</td>' +
+            '<td><button class="kb-action-btn btn-delete" style="width:auto;padding:4px 10px;font-size:0.8rem;" onclick="deleteFile(' + f.id + ')" title="删除"><i class="fas fa-trash-alt"></i></button></td>';
         tbody.appendChild(tr);
     });
 }
@@ -201,26 +238,59 @@ async function deleteFile(fileId) {
 // 文件上传
 // ============================================================
 
-document.getElementById('selectBtn').addEventListener('click', function() {
-    document.getElementById('fileInput').click();
+const dropzone = document.getElementById('uploadDropzone');
+const fileInput = document.getElementById('fileInput');
+const fileListDiv = document.getElementById('fileList');
+const fileItemsDiv = document.getElementById('fileItems');
+const fileCountSpan = document.getElementById('fileCount');
+const clearFilesBtn = document.getElementById('clearFilesBtn');
+const startBtn = document.getElementById('startBtn');
+
+// Dropzone click → 打开文件选择
+dropzone.addEventListener('click', function(e) {
+    if (e.target === fileInput) return;
+    fileInput.click();
 });
 
-document.getElementById('fileInput').addEventListener('change', function() {
-    selectedFiles = Array.from(this.files);
-    document.getElementById('fileCount').textContent = selectedFiles.length;
-
-    const itemsDiv = document.getElementById('fileItems');
-    itemsDiv.innerHTML = selectedFiles.map(f => '<div>' + escapeHtml(f.name) + '</div>').join('');
+// 拖拽事件
+dropzone.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    dropzone.classList.add('drag-over');
+});
+dropzone.addEventListener('dragleave', function() {
+    dropzone.classList.remove('drag-over');
+});
+dropzone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length > 0) {
+        updateFileSelection(Array.from(e.dataTransfer.files));
+    }
 });
 
-document.getElementById('clearFilesBtn').addEventListener('click', function() {
+// 文件选择
+fileInput.addEventListener('change', function() {
+    updateFileSelection(Array.from(this.files));
+});
+
+function updateFileSelection(files) {
+    selectedFiles = files;
+    fileCountSpan.textContent = files.length;
+    fileItemsDiv.innerHTML = files.map(f => '<div><i class="fas fa-file" style="margin-right:6px;color:#4b6cb7;"></i>' + escapeHtml(f.name) + '</div>').join('');
+    fileListDiv.style.display = files.length > 0 ? 'block' : 'none';
+}
+
+// 清空
+clearFilesBtn.addEventListener('click', function() {
     selectedFiles = [];
-    document.getElementById('fileInput').value = '';
-    document.getElementById('fileCount').textContent = '0';
-    document.getElementById('fileItems').innerHTML = '';
+    fileInput.value = '';
+    fileCountSpan.textContent = '0';
+    fileItemsDiv.innerHTML = '';
+    fileListDiv.style.display = 'none';
 });
 
-document.getElementById('startBtn').addEventListener('click', async function() {
+// 上传
+startBtn.addEventListener('click', async function() {
     if (!currentKbId) {
         alert('请先选择知识库');
         return;
@@ -234,6 +304,7 @@ document.getElementById('startBtn').addEventListener('click', async function() {
     const progressFill = document.getElementById('overallProgressFill');
     const progressText = document.getElementById('progressText');
     const progressPercent = document.getElementById('progressPercent');
+    const resultSpan = document.getElementById('fileUploadResult');
 
     progressDiv.style.display = 'block';
 
@@ -247,13 +318,13 @@ document.getElementById('startBtn').addEventListener('click', async function() {
             const resp = await fetch('/vdb/upload', { method: 'POST', body: fd });
             const data = await resp.json();
             if (data.status !== 'ok') {
-                document.getElementById('fileUploadResult').textContent = '上传 ' + file.name + ' 失败: ' + (data.error || '未知错误');
+                resultSpan.textContent = '上传失败: ' + (data.error || '未知错误');
             } else {
-                document.getElementById('fileUploadResult').textContent = '上传 ' + file.name + ' 成功，后台处理中...';
+                resultSpan.textContent = '上传成功';
             }
         } catch (e) {
             console.error('上传失败:', e);
-            document.getElementById('fileUploadResult').textContent = '上传失败: ' + e.message;
+            resultSpan.textContent = '上传失败';
         }
 
         const pct = Math.round((i + 1) / selectedFiles.length * 100);
@@ -264,14 +335,22 @@ document.getElementById('startBtn').addEventListener('click', async function() {
 
     // 刷新文件列表
     loadFileList(currentKbId);
-    // 确保轮询已启动（如果还没启动）
     if (!refreshInterval && currentKbId) {
         refreshInterval = setInterval(() => loadFileList(currentKbId), 5000);
     }
+
+    // 上传完成，1.5 秒后隐藏进度条
+    setTimeout(() => {
+        progressDiv.style.display = 'none';
+        progressFill.style.width = '0';
+    }, 1500);
+
+    // 清空已选
     selectedFiles = [];
-    document.getElementById('fileInput').value = '';
-    document.getElementById('fileCount').textContent = '0';
-    document.getElementById('fileItems').innerHTML = '';
+    fileInput.value = '';
+    fileCountSpan.textContent = '0';
+    fileItemsDiv.innerHTML = '';
+    fileListDiv.style.display = 'none';
 });
 
 // ============================================================
@@ -280,8 +359,11 @@ document.getElementById('startBtn').addEventListener('click', async function() {
 
 function showStatus(msg) {
     const el = document.getElementById('kb_status');
-    el.style.display = 'block';
-    el.querySelector('span').textContent = msg;
+    el.innerHTML = '<i class="fas fa-check-circle"></i> ' + escapeHtml(msg);
+    el.style.display = 'inline-block';
+    el.style.animation = 'none';
+    el.offsetHeight;
+    el.style.animation = 'toastFade 3s ease-out forwards';
     setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
 
@@ -299,7 +381,19 @@ function formatTime(ts) {
 }
 
 // 页面初始化
-refreshKbList();
+refreshKbList().then(() => {
+    // 从 URL hash 恢复知识库选择
+    const hash = window.location.hash;
+    const match = hash.match(/^#kb=(\d+)$/);
+    if (match) {
+        const kbId = match[1];
+        const sel = document.getElementById('kb_selector');
+        // 检查该 KB 是否在下拉列表中
+        if (sel.querySelector('option[value="' + kbId + '"]')) {
+            selectKb(kbId);
+        }
+    }
+});
 
 // 页面离开时清理定时器
 window.addEventListener('beforeunload', () => clearInterval(refreshInterval));
