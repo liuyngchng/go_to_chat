@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"go_to_chat/internal/model"
@@ -17,14 +16,11 @@ type SQLiteStore struct {
 	db *sql.DB
 }
 
-// NewSQLiteStore 创建或打开 SQLite 数据库
+// NewSQLiteStore 打开 SQLite 数据库（文件必须已存在）
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
-	// 确保目录存在
-	dir := filepath.Dir(dbPath)
-	if dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("创建数据库目录失败: %w", err)
-		}
+	// 检查数据库文件是否存在，不允许自动创建
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("数据库文件 %s 不存在，请从 cfg.db.template 复制", dbPath)
 	}
 
 	db, err := sql.Open("sqlite", dbPath)

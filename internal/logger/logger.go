@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 var (
@@ -109,11 +112,51 @@ func Init(debug bool) error {
 	// 使用自定义格式 handler
 	handler := &customHandler{w: multiWriter, level: level}
 
-	// 添加 source 到每条日志（通过 WithAttrs 预注入 PC 采集）
 	Logger = slog.New(handler)
 
 	// 设置为默认 logger
 	slog.SetDefault(Logger)
 
+	// 将 Gin 的日志输出重定向到统一 writer
+	gin.DefaultWriter = multiWriter
+	gin.DefaultErrorWriter = multiWriter
+
 	return nil
+}
+
+// GinLogger 返回使用 slog 的 Gin 请求日志中间件
+func GinLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		query := c.Request.URL.RawQuery
+
+		c.Next()
+
+		statusCode := c.Writer.Status()
+		// 只记录 4xx/5xx 错误
+		if statusCode < 400 {
+			return
+		}
+
+		latency := time.Since(start)
+		method := c.Request.Method
+		clientIP := c.ClientIP()
+
+		level := slog.LevelWarn
+		if statusCode >= 500 {
+			level = slog.LevelError
+		}
+
+		slog.LogAttrs(c.Request.Context(), level,
+			"GIN",
+			slog.Int("status", statusCode),
+			slog.String("method", method),
+			slog.String("path", path),
+			slog.String("query", query),
+			slog.String("ip", clientIP),
+			slog.Duration("latency", latency),
+			slog.Int("size", c.Writer.Size()),
+		)
+	}
 }

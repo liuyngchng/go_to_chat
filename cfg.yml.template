@@ -5,7 +5,7 @@ server:
   debug: true
 
 sys:
-  name: 智能客服
+  name: 对话机器人
   auth: false
 
 api:

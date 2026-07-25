@@ -94,7 +94,7 @@ func FormatHistory(messages []model.ChatMessage) string {
 		if msg.Role == "user" {
 			result += "用户：" + msg.Content + "\n"
 		} else {
-			result += "客服：" + msg.Content + "\n"
+			result += "机器人：" + msg.Content + "\n"
 		}
 	}
 	return result

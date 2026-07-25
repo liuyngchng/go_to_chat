@@ -21,4 +21,7 @@ type VectorStore interface {
 
 	// Close 关闭连接，释放资源
 	Close() error
+
+	// Purge 清空当前 store 的所有数据
+	Purge() error
 }

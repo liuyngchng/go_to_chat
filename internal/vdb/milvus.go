@@ -208,6 +208,21 @@ func (s *MilvusStore) DeleteBySource(source string) error {
 	return s.cli.Delete(s.ctx, s.collectionName, "", expr)
 }
 
+// Purge 清空 collection 数据（通过重建实现）
+func (s *MilvusStore) Purge() error {
+	has, err := s.cli.HasCollection(s.ctx, s.collectionName)
+	if err != nil {
+		return err
+	}
+	if !has {
+		return nil
+	}
+	if err := s.cli.DropCollection(s.ctx, s.collectionName); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Close 关闭连接
 func (s *MilvusStore) Close() error {
 	return s.cli.Close()
@@ -218,15 +233,15 @@ func (s *MilvusStore) Close() error {
 // ============================================================
 
 // New 根据配置创建向量存储
-// milvusURI 为空时返回 LocalStore，否则返回 MilvusStore
-func New(milvusURI, milvusToken, storePath string) (VectorStore, error) {
+// milvusURI 为空或非 http 时返回 LocalStore，否则返回 MilvusStore
+func New(milvusURI, milvusToken, storePath string, vdbID int64) (VectorStore, error) {
 	if milvusURI != "" && (strings.HasPrefix(milvusURI, "http://") || strings.HasPrefix(milvusURI, "https://")) {
 		slog.Info("使用远程 Milvus", "uri", milvusURI)
 		return NewMilvusStore(milvusURI, milvusToken)
 	}
 
 	slog.Info("使用本地向量存储", "path", storePath)
-	return NewLocalStore(storePath)
+	return NewLocalStore(storePath, vdbID)
 }
 
 // ============================================================

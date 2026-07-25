@@ -1,8 +1,12 @@
 package main
 
 import (
+	"embed"
 	"fmt"
+	"html/template"
+	"io/fs"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +20,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+//go:embed web
+var webFS embed.FS
 
 func main() {
 	// 加载配置
@@ -31,7 +38,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("启动 AI 客服系统...")
+	slog.Info("启动对话机器人...")
+
+	// 检查 cfg.db 是否存在，必须由部署人员从 cfg.db.template 手动复制
+	if _, err := os.Stat("cfg.db"); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "错误: cfg.db 不存在，请将 cfg.db.template 复制为 cfg.db 后重新启动\n")
+		os.Exit(1)
+	}
 
 	// 初始化 SQLite 元数据存储
 	metaStore, err := store.NewSQLiteStore("cfg.db")
@@ -57,13 +70,24 @@ func main() {
 	if !cfg.Server.Debug {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	r := gin.Default()
+	r := gin.New()
+	r.Use(logger.GinLogger(), gin.Recovery())
 
-	// 加载 HTML 模板
-	r.LoadHTMLGlob("web/templates/*")
+	// 加载 HTML 模板（从 embed.FS）
+	tmpl, err := template.ParseFS(webFS, "web/templates/*")
+	if err != nil {
+		slog.Error("加载模板失败", "error", err)
+		os.Exit(1)
+	}
+	r.SetHTMLTemplate(tmpl)
 
-	// 静态文件
-	r.Static("/static", "./web/static")
+	// 静态文件（从 embed.FS）
+	staticFS, err := fs.Sub(webFS, "web/static")
+	if err != nil {
+		slog.Error("加载静态文件失败", "error", err)
+		os.Exit(1)
+	}
+	r.StaticFS("/static", http.FS(staticFS))
 
 	// 页面路由
 	r.GET("/", h.Page.Index)

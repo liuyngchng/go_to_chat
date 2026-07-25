@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	VdbPrefix       = "./vdb/vdb_idx_"
-	UploadDir       = "./upload_doc"
+	VdbDir           = "./vdb"
+	VectorsDB        = "./vdb/vectors.db"
+	UploadDir        = "./upload_doc"
 	FilePollInterval = 5 * time.Second
 )
 
@@ -32,7 +33,7 @@ type Manager struct {
 	embClient *embedding.Client
 	stopCh    chan struct{}
 	mu        sync.RWMutex
-	stores    map[string]vdb.VectorStore // key: vdbPath -> store
+	stores    map[int64]vdb.VectorStore // key: vdbID -> store
 }
 
 // NewManager 创建知识库管理器
@@ -48,7 +49,7 @@ func NewManager(cfg *model.Config, metaStore *store.SQLiteStore) *Manager {
 		store:     metaStore,
 		embClient: embClient,
 		stopCh:    make(chan struct{}),
-		stores:    make(map[string]vdb.VectorStore),
+		stores:    make(map[int64]vdb.VectorStore),
 	}
 }
 
@@ -72,8 +73,7 @@ func (m *Manager) CreateKB(name, uid string, isPublic bool) (int64, error) {
 	}
 
 	// 初始化向量存储
-	vdbPath := m.getVdbPath(uid, id)
-	vs, err := m.getOrCreateStore(vdbPath)
+	vs, err := m.getOrCreateStore(id)
 	if err != nil {
 		return 0, fmt.Errorf("初始化向量存储失败: %w", err)
 	}
@@ -101,16 +101,13 @@ func (m *Manager) DeleteKB(id int64, uid string) error {
 	}
 
 	// 删除向量数据
-	vdbPath := m.getVdbPath(uid, id)
 	m.mu.Lock()
-	if vs, ok := m.stores[vdbPath]; ok {
+	if vs, ok := m.stores[id]; ok {
+		vs.Purge()
 		vs.Close()
-		delete(m.stores, vdbPath)
+		delete(m.stores, id)
 	}
 	m.mu.Unlock()
-
-	// 删除目录
-	os.RemoveAll(vdbPath)
 
 	// 删除文件记录中的文件
 	files, _ := m.store.GetFilesByVdbID(id)
@@ -223,12 +220,8 @@ func (m *Manager) DeleteFile(fileID int64, uid string) error {
 	}
 
 	// 从向量库删除
-	vdbInfo, err := m.store.GetVdbByID(finfo.VdbID)
-	if err == nil && vdbInfo != nil {
-		vdbPath := m.getVdbPath(uid, finfo.VdbID)
-		absPath, _ := filepath.Abs(finfo.FilePath)
-		m.deleteVectorsBySource(vdbPath, absPath)
-	}
+	absPath, _ := filepath.Abs(finfo.FilePath)
+	m.deleteVectorsBySource(finfo.VdbID, absPath)
 
 	// 删除文件
 	os.Remove(finfo.FilePath)
@@ -242,8 +235,7 @@ func (m *Manager) DeleteFile(fileID int64, uid string) error {
 
 // SearchInKB 在单个知识库中检索
 func (m *Manager) SearchInKB(query string, vdbID int64, uid string, topK int, scoreThreshold float64) (string, error) {
-	vdbPath := m.getVdbPath(uid, vdbID)
-	vs, err := m.getOrCreateStore(vdbPath)
+	vs, err := m.getOrCreateStore(vdbID)
 	if err != nil {
 		return "", err
 	}
@@ -377,8 +369,7 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 	m.store.UpdateFileProgress(finfo.ID, 5, fmt.Sprintf("已切分为 %d 个文本块，开始向量化", len(chunks)))
 
 	// 初始化向量存储
-	vdbPath := m.getVdbPath(finfo.UID, finfo.VdbID)
-	vs, err := m.getOrCreateStore(vdbPath)
+	vs, err := m.getOrCreateStore(finfo.VdbID)
 	if err != nil {
 		return fmt.Errorf("获取向量存储失败: %w", err)
 	}
@@ -457,13 +448,9 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 // 内部方法
 // ============================================================
 
-func (m *Manager) getVdbPath(uid string, vdbID int64) string {
-	return fmt.Sprintf("%s%s_%d", VdbPrefix, uid, vdbID)
-}
-
-func (m *Manager) getOrCreateStore(vdbPath string) (vdb.VectorStore, error) {
+func (m *Manager) getOrCreateStore(vdbID int64) (vdb.VectorStore, error) {
 	m.mu.RLock()
-	vs, ok := m.stores[vdbPath]
+	vs, ok := m.stores[vdbID]
 	m.mu.RUnlock()
 
 	if ok {
@@ -474,29 +461,28 @@ func (m *Manager) getOrCreateStore(vdbPath string) (vdb.VectorStore, error) {
 	defer m.mu.Unlock()
 
 	// 双重检查
-	if vs, ok = m.stores[vdbPath]; ok {
+	if vs, ok = m.stores[vdbID]; ok {
 		return vs, nil
 	}
 
-	// 确保目录存在
-	os.MkdirAll(vdbPath, 0755)
+	// 确保 vdb 目录存在
+	os.MkdirAll(VdbDir, 0755)
 
-	storeFile := filepath.Join(vdbPath, "vectors.json")
 	milvusURI := m.cfg.Milvus.URI
 	milvusToken := m.cfg.Milvus.Token
 
-	vs, err := vdb.New(milvusURI, milvusToken, storeFile)
+	vs, err := vdb.New(milvusURI, milvusToken, VectorsDB, vdbID)
 	if err != nil {
 		return nil, err
 	}
 
-	m.stores[vdbPath] = vs
+	m.stores[vdbID] = vs
 	return vs, nil
 }
 
-func (m *Manager) deleteVectorsBySource(vdbPath, source string) {
+func (m *Manager) deleteVectorsBySource(vdbID int64, source string) {
 	m.mu.RLock()
-	vs, ok := m.stores[vdbPath]
+	vs, ok := m.stores[vdbID]
 	m.mu.RUnlock()
 
 	if ok {
