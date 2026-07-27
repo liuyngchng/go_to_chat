@@ -359,7 +359,7 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 	}
 
 	// 文本切分
-	chunks := splitText(text, 300, 80)
+	chunks := splitText(text, m.cfg.KB.ChunkSize, m.cfg.KB.ChunkOverlap)
 	if len(chunks) == 0 {
 		m.store.UpdateFileProgress(finfo.ID, 100, "无可切分的文本内容")
 		return nil

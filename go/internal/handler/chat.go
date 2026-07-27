@@ -32,6 +32,7 @@ func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Ma
 		cfg.API.LLMAPIKey,
 		cfg.API.LLMModelName,
 	)
+	llmClient.SetParams(cfg.LLM.Temperature, cfg.LLM.TopP, cfg.LLM.MaxTokens)
 
 	return &ChatHandler{
 		cfg:        cfg,
@@ -79,7 +80,7 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	curDate := time.Now().Format("2006-01-02")
 	curWeek := getWeekdayCN(time.Now().Weekday())
 
-	contextStr := h.kbMgr.SearchAllKBs(req.Msg, uid, 3, 0.1)
+	contextStr := h.kbMgr.SearchAllKBs(req.Msg, uid, h.cfg.KB.TopK, h.cfg.KB.ScoreThreshold)
 
 	// 构建提示词：优先从数据库读取，fallback 到 YAML 配置
 	promptTemplate := h.getPromptTemplate()
@@ -162,7 +163,7 @@ func getWeekdayCN(d time.Weekday) string {
 	return days[d]
 }
 
-// getPromptTemplate 从 SQLite 数据库获取提示词模板，不存在则 fallback 到 YAML 配置
+// getPromptTemplate 从 SQLite 数据库获取提示词模板，不存在则返回默认模板
 func (h *ChatHandler) getPromptTemplate() string {
 	if h.store != nil {
 		prompt, err := h.store.GetPrompt("chat_msg")
@@ -170,7 +171,7 @@ func (h *ChatHandler) getPromptTemplate() string {
 			return prompt
 		}
 	}
-	return h.cfg.Prompts.ChatMsg
+	return store.DefaultChatPrompt()
 }
 
 func min(a, b int) int {

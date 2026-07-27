@@ -25,7 +25,7 @@ import (
 var webFS embed.FS
 
 func main() {
-	// 加载配置
+	// 加载配置（server + milvus 从 YAML 文件）
 	cfg, err := config.Load("cfg.yml")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载配置文件失败: %v\n", err)
@@ -53,6 +53,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer metaStore.Close()
+
+	// 从 SQLite 加载运行时配置（sys、api），YAML 值作为种子
+	if err := config.LoadRuntimeConfig(metaStore, cfg); err != nil {
+		slog.Error("加载运行时配置失败", "error", err)
+		os.Exit(1)
+	}
 
 	// 初始化会话管理器
 	sessionMgr := session.NewManager()
@@ -92,6 +98,7 @@ func main() {
 	// 页面路由
 	r.GET("/", h.Page.Index)
 	r.GET("/vdb/idx", h.Page.VdbIndex)
+	r.GET("/admin/config", h.Page.ConfigIndex)
 
 	// 聊天 API
 	r.POST("/chat", h.Chat.Chat)
@@ -109,6 +116,10 @@ func main() {
 	vdb.POST("/process/info", h.Vdb.ProcessInfo)
 	vdb.POST("/search", h.Vdb.Search)
 	vdb.POST("/file/delete", h.Vdb.FileDelete)
+
+	// 系统配置 API
+	r.GET("/api/config", h.Config.GetConfig)
+	r.POST("/api/config", h.Config.UpdateConfig)
 
 	// 优雅退出
 	go func() {

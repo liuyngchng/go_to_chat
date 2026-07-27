@@ -179,7 +179,7 @@ func (h *VdbHandler) Search(c *gin.Context) {
 		return
 	}
 
-	result, err := h.kbMgr.SearchInKB(query, vdbID, uid, 5, 0.1)
+	result, err := h.kbMgr.SearchInKB(query, vdbID, uid, h.cfg.KB.TopK, h.cfg.KB.ScoreThreshold)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -45,3 +45,17 @@ func (h *PageHandler) VdbIndex(c *gin.Context) {
 		"app_source": "csm",
 	})
 }
+
+// ConfigIndex 系统配置页面
+func (h *PageHandler) ConfigIndex(c *gin.Context) {
+	uid := c.Query("uid")
+	if uid == "" {
+		uid = "default"
+	}
+
+	c.HTML(http.StatusOK, "config.html", gin.H{
+		"sys_name":  h.cfg.Sys.Name,
+		"uid":       uid,
+		"app_source": "csm",
+	})
+}

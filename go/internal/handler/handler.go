@@ -9,16 +9,18 @@ import (
 
 // Handler 聚合所有处理器
 type Handler struct {
-	Page *PageHandler
-	Chat *ChatHandler
-	Vdb  *VdbHandler
+	Page   *PageHandler
+	Chat   *ChatHandler
+	Vdb    *VdbHandler
+	Config *ConfigHandler
 }
 
 // New 创建处理器
 func New(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore *store.SQLiteStore) *Handler {
 	return &Handler{
-		Page: NewPageHandler(cfg),
-		Chat: NewChatHandler(cfg, kbMgr, sessionMgr, metaStore),
-		Vdb:  NewVdbHandler(cfg, kbMgr, metaStore),
+		Page:   NewPageHandler(cfg),
+		Chat:   NewChatHandler(cfg, kbMgr, sessionMgr, metaStore),
+		Vdb:    NewVdbHandler(cfg, kbMgr, metaStore),
+		Config: NewConfigHandler(cfg, metaStore),
 	}
 }

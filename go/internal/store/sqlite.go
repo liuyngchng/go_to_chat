@@ -83,6 +83,14 @@ func (s *SQLiteStore) migrate() error {
 			value TEXT NOT NULL,
 			uid INTEGER NOT NULL DEFAULT 0
 		);
+
+		CREATE TABLE IF NOT EXISTS sys_config (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			config_key TEXT NOT NULL UNIQUE,
+			config_value TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
 		`
 	_, err := s.db.Exec(schema)
 	return err
@@ -342,6 +350,129 @@ func (s *SQLiteStore) UpsertPrompt(name, value string, uid int) error {
 	)
 	return err
 }
+
+// ============================================================
+// 系统配置 (sys_config)
+// ============================================================
+
+// GetConfig 获取单个配置值
+func (s *SQLiteStore) GetConfig(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(
+		"SELECT config_value FROM sys_config WHERE config_key = ?", key,
+	).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+// SetConfig 设置单个配置值（插入或更新）
+func (s *SQLiteStore) SetConfig(key, value, description string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO sys_config (config_key, config_value, description, updated_at)
+		 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(config_key) DO UPDATE SET
+		 config_value = excluded.config_value,
+		 description = excluded.description,
+		 updated_at = CURRENT_TIMESTAMP`,
+		key, value, description,
+	)
+	return err
+}
+
+// GetAllConfigs 获取所有配置项
+func (s *SQLiteStore) GetAllConfigs() (map[string]string, error) {
+	rows, err := s.db.Query("SELECT config_key, config_value FROM sys_config")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		result[key] = value
+	}
+	return result, rows.Err()
+}
+
+// SeedDefaultConfigs 初始化默认配置（仅当 sys_config 表为空时执行）
+// 从 cfg.yml 中读取的值作为初始种子
+func (s *SQLiteStore) SeedDefaultConfigs(sysName, sysAuth string, apiCfg APISeedConfig) error {
+	// 检查是否已有配置
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM sys_config").Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil // 已有配置，跳过种子
+	}
+
+	entries := []struct{ key, value, desc string }{
+		{"sys.name", sysName, "系统名称"},
+		{"sys.auth", sysAuth, "是否启用认证 (true/false)"},
+		{"api.llm_api_uri", apiCfg.LLMAPIURI, "LLM API 地址"},
+		{"api.llm_api_key", apiCfg.LLMAPIKey, "LLM API Key"},
+		{"api.llm_model_name", apiCfg.LLMModelName, "LLM 模型名称"},
+		{"api.embedding_api_uri", apiCfg.EmbeddingAPIURI, "Embedding API 地址"},
+		{"api.embedding_api_key", apiCfg.EmbeddingAPIKey, "Embedding API Key"},
+		{"api.embedding_model_name", apiCfg.EmbeddingModelName, "Embedding 模型名称"},
+		{"prompt.chat_msg", defaultChatPrompt, "聊天提示词模板"},
+			// 知识库参数
+			{"kb.chunk_size", "300", "文本分片大小（字符数）"},
+			{"kb.chunk_overlap", "80", "文本分片重叠大小（字符数）"},
+			{"kb.top_k", "3", "检索返回条数"},
+			{"kb.score_threshold", "0.1", "检索相似度阈值"},
+			// LLM 参数
+			{"llm.temperature", "0.7", "LLM 温度参数 (0-2)"},
+			{"llm.top_p", "0.9", "LLM Top-P 采样参数 (0-1)"},
+			{"llm.max_tokens", "2048", "LLM 最大生成 Token 数"},
+	}
+
+	for _, e := range entries {
+		if err := s.SetConfig(e.key, e.value, e.desc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// APISeedConfig 用于初始化 API 配置的种子数据
+type APISeedConfig struct {
+	LLMAPIURI          string
+	LLMAPIKey          string
+	LLMModelName       string
+	EmbeddingAPIURI    string
+	EmbeddingAPIKey    string
+	EmbeddingModelName string
+}
+
+// DefaultChatPrompt 返回默认聊天提示词模板
+func DefaultChatPrompt() string {
+	return defaultChatPrompt
+}
+
+const defaultChatPrompt = `你是专业的对话机器人，负责解答客户咨询。你必须基于以下知识库信息回答用户问题。
+如果知识库中没有相关信息，请引导用户转接人工客服。
+
+今日日期：{cur_date}（星期{cur_week}）
+
+知识库内容：
+---
+{context}
+---
+
+历史对话：
+{history}
+
+用户问题：{question}
+
+请用亲切、专业的中文回答：`
 
 // ============================================================
 // 辅助函数

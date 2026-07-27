@@ -8,11 +8,28 @@ import "time"
 
 // Config 应用配置
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
-	Sys     SysConfig     `yaml:"sys"`
-	API     APIConfig     `yaml:"api"`
-	Milvus  MilvusConfig  `yaml:"milvus"`
-	Prompts PromptsConfig `yaml:"prompts"`
+	Server ServerConfig `yaml:"server"`
+	Sys    SysConfig    `yaml:"sys"`
+	API    APIConfig    `yaml:"api"`
+	Milvus MilvusConfig `yaml:"milvus"`
+	KB     KBConfig     `yaml:"kb"`
+	LLM    LLMParams    `yaml:"llm"`
+	// Prompts 从 SQLite 数据库加载，不再从 YAML 读取
+}
+
+// KBConfig 知识库参数配置
+type KBConfig struct {
+	ChunkSize      int     `json:"chunk_size"`
+	ChunkOverlap   int     `json:"chunk_overlap"`
+	TopK           int     `json:"top_k"`
+	ScoreThreshold float64 `json:"score_threshold"`
+}
+
+// LLMParams LLM 模型参数配置
+type LLMParams struct {
+	Temperature float64 `json:"temperature"`
+	TopP        float64 `json:"top_p"`
+	MaxTokens   int     `json:"max_tokens"`
 }
 
 // ServerConfig 服务器配置
@@ -41,11 +58,6 @@ type APIConfig struct {
 type MilvusConfig struct {
 	URI   string `yaml:"uri"`
 	Token string `yaml:"token"`
-}
-
-// PromptsConfig 提示词配置
-type PromptsConfig struct {
-	ChatMsg string `yaml:"chat_msg"`
 }
 
 // ============================================================
@@ -109,9 +121,12 @@ type ChatHistory struct {
 
 // ChatCompletionRequest OpenAI 兼容的聊天请求
 type ChatCompletionRequest struct {
-	Model    string              `json:"model"`
-	Messages []ChatCompletionMsg `json:"messages"`
-	Stream   bool                `json:"stream"`
+	Model       string              `json:"model"`
+	Messages    []ChatCompletionMsg `json:"messages"`
+	Stream      bool                `json:"stream"`
+	Temperature *float64            `json:"temperature,omitempty"`
+	TopP        *float64            `json:"top_p,omitempty"`
+	MaxTokens   *int                `json:"max_tokens,omitempty"`
 }
 
 // ChatCompletionMsg 消息
@@ -160,4 +175,15 @@ type VectorRecord struct {
 	Vector  []float64         `json:"vector"`
 	Content string            `json:"content"`
 	Meta    map[string]string `json:"metadata"`
+}
+
+// ============================================================
+// 系统配置相关
+// ============================================================
+
+// ConfigEntry 系统配置项（用于 API 响应）
+type ConfigEntry struct {
+	Key         string `json:"key"`
+	Value       string `json:"value"`
+	Description string `json:"description"`
 }

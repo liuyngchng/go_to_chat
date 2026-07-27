@@ -3,13 +3,16 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"go_to_chat/internal/model"
+	"go_to_chat/internal/store"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Load 从文件加载配置
+// Load 从 YAML 文件加载配置（server + milvus 部分）
+// sys、api 配置将在后续从 SQLite 数据库加载
 func Load(path string) (*model.Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -25,6 +28,124 @@ func Load(path string) (*model.Config, error) {
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 19007
 	}
+	if cfg.KB.ChunkSize == 0 {
+		cfg.KB.ChunkSize = 300
+	}
+	if cfg.KB.ChunkOverlap == 0 {
+		cfg.KB.ChunkOverlap = 80
+	}
+	if cfg.KB.TopK == 0 {
+		cfg.KB.TopK = 3
+	}
+	if cfg.KB.ScoreThreshold == 0 {
+		cfg.KB.ScoreThreshold = 0.1
+	}
+	if cfg.LLM.Temperature == 0 {
+		cfg.LLM.Temperature = 0.7
+	}
+	if cfg.LLM.TopP == 0 {
+		cfg.LLM.TopP = 0.9
+	}
+	if cfg.LLM.MaxTokens == 0 {
+		cfg.LLM.MaxTokens = 2048
+	}
 
 	return &cfg, nil
+}
+
+// LoadRuntimeConfig 从 SQLite 加载运行时配置（sys、api），覆盖 YAML 中的初始值。
+// 如果 sys_config 表为空，则用 cfg 中的 YAML 值作为种子写入数据库。
+func LoadRuntimeConfig(s *store.SQLiteStore, cfg *model.Config) error {
+	// 种子数据（仅当表为空时写入）
+	seedAPI := store.APISeedConfig{
+		LLMAPIURI:          cfg.API.LLMAPIURI,
+		LLMAPIKey:          cfg.API.LLMAPIKey,
+		LLMModelName:       cfg.API.LLMModelName,
+		EmbeddingAPIURI:    cfg.API.EmbeddingAPIURI,
+		EmbeddingAPIKey:    cfg.API.EmbeddingAPIKey,
+		EmbeddingModelName: cfg.API.EmbeddingModelName,
+	}
+
+	sysAuth := "false"
+	if cfg.Sys.Auth {
+		sysAuth = "true"
+	}
+
+	if err := s.SeedDefaultConfigs(cfg.Sys.Name, sysAuth, seedAPI); err != nil {
+		return fmt.Errorf("初始化默认配置失败: %w", err)
+	}
+
+	// 从数据库读取所有配置
+	configs, err := s.GetAllConfigs()
+	if err != nil {
+		return fmt.Errorf("读取系统配置失败: %w", err)
+	}
+
+	// 应用配置到 cfg 结构体
+	applyConfig(configs, cfg)
+
+	return nil
+}
+
+// ReloadRuntimeConfig 从数据库重新加载运行时配置（用于配置更新后刷新）
+func ReloadRuntimeConfig(s *store.SQLiteStore, cfg *model.Config) error {
+	configs, err := s.GetAllConfigs()
+	if err != nil {
+		return fmt.Errorf("读取系统配置失败: %w", err)
+	}
+	applyConfig(configs, cfg)
+	return nil
+}
+
+// applyConfig 将 key-value 配置映射到 Config 结构体
+func applyConfig(configs map[string]string, cfg *model.Config) {
+	if v, ok := configs["sys.name"]; ok && v != "" {
+		cfg.Sys.Name = v
+	}
+	if v, ok := configs["sys.auth"]; ok {
+		cfg.Sys.Auth = v == "true"
+	}
+	if v, ok := configs["api.llm_api_uri"]; ok && v != "" {
+		cfg.API.LLMAPIURI = v
+	}
+	if v, ok := configs["api.llm_api_key"]; ok && v != "" {
+		cfg.API.LLMAPIKey = v
+	}
+	if v, ok := configs["api.llm_model_name"]; ok && v != "" {
+		cfg.API.LLMModelName = v
+	}
+	if v, ok := configs["api.embedding_api_uri"]; ok && v != "" {
+		cfg.API.EmbeddingAPIURI = v
+	}
+	if v, ok := configs["api.embedding_api_key"]; ok && v != "" {
+		cfg.API.EmbeddingAPIKey = v
+	}
+	if v, ok := configs["api.embedding_model_name"]; ok && v != "" {
+		cfg.API.EmbeddingModelName = v
+	}
+
+	// 知识库参数
+	if v, ok := configs["kb.chunk_size"]; ok && v != "" {
+		cfg.KB.ChunkSize, _ = strconv.Atoi(v)
+	}
+	if v, ok := configs["kb.chunk_overlap"]; ok && v != "" {
+		cfg.KB.ChunkOverlap, _ = strconv.Atoi(v)
+	}
+	if v, ok := configs["kb.top_k"]; ok && v != "" {
+		cfg.KB.TopK, _ = strconv.Atoi(v)
+	}
+	if v, ok := configs["kb.score_threshold"]; ok && v != "" {
+		cfg.KB.ScoreThreshold, _ = strconv.ParseFloat(v, 64)
+	}
+
+	// LLM 参数
+	if v, ok := configs["llm.temperature"]; ok && v != "" {
+		cfg.LLM.Temperature, _ = strconv.ParseFloat(v, 64)
+	}
+	if v, ok := configs["llm.top_p"]; ok && v != "" {
+		cfg.LLM.TopP, _ = strconv.ParseFloat(v, 64)
+	}
+	if v, ok := configs["llm.max_tokens"]; ok && v != "" {
+		cfg.LLM.MaxTokens, _ = strconv.Atoi(v)
+	}
 }

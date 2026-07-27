@@ -31,10 +31,13 @@ var llmHTTPClient = &http.Client{
 
 // Client LLM 客户端（OpenAI 兼容接口）
 type Client struct {
-	BaseURL   string
-	APIKey    string
-	ModelName string
-	httpCli   *http.Client
+	BaseURL     string
+	APIKey      string
+	ModelName   string
+	Temperature *float64
+	TopP        *float64
+	MaxTokens   *int
+	httpCli     *http.Client
 }
 
 // New 创建 LLM 客户端
@@ -44,6 +47,19 @@ func New(baseURL, apiKey, modelName string) *Client {
 		APIKey:    apiKey,
 		ModelName: modelName,
 		httpCli:   llmHTTPClient,
+	}
+}
+
+// SetParams 设置 LLM 模型参数
+func (c *Client) SetParams(temperature, topP float64, maxTokens int) {
+	if temperature > 0 {
+		c.Temperature = &temperature
+	}
+	if topP > 0 {
+		c.TopP = &topP
+	}
+	if maxTokens > 0 {
+		c.MaxTokens = &maxTokens
 	}
 }
 
@@ -61,11 +77,14 @@ func (c *Client) ChatStream(systemPrompt, userMessage string) (<-chan string, <-
 			{Role: "user", Content: userMessage},
 		}
 
-		reqBody := model.ChatCompletionRequest{
-			Model:    c.ModelName,
-			Messages: messages,
-			Stream:   true,
-		}
+			reqBody := model.ChatCompletionRequest{
+				Model:       c.ModelName,
+				Messages:    messages,
+				Stream:      true,
+				Temperature: c.Temperature,
+				TopP:        c.TopP,
+				MaxTokens:   c.MaxTokens,
+			}
 
 		jsonData, err := json.Marshal(reqBody)
 		if err != nil {
@@ -138,11 +157,13 @@ func (c *Client) Chat(systemPrompt, userMessage string) (string, error) {
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userMessage},
 	}
-
 	reqBody := model.ChatCompletionRequest{
-		Model:    c.ModelName,
-		Messages: messages,
-		Stream:   false,
+		Model:       c.ModelName,
+		Messages:    messages,
+		Stream:      false,
+		Temperature: c.Temperature,
+		TopP:        c.TopP,
+		MaxTokens:   c.MaxTokens,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
