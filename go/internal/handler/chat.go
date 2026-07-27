@@ -46,15 +46,12 @@ func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Ma
 // Chat 处理聊天请求，SSE 流式返回
 func (h *ChatHandler) Chat(c *gin.Context) {
 	var req model.ChatRequest
-	if err := c.ShouldBind(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
 		return
 	}
 
-	uid := req.UID
-	if uid == "" {
-		uid = "default"
-	}
+	uid := getAuthUID(c)
 	sessionID := req.SessionID
 	if sessionID == "" {
 		sessionID = "default"
@@ -130,12 +127,14 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 
 // Clear 清空会话
 func (h *ChatHandler) Clear(c *gin.Context) {
-	uid := c.PostForm("uid")
-	sessionID := c.PostForm("session_id")
-
-	if uid == "" {
-		uid = "default"
+	var req model.ChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
 	}
+
+	uid := getAuthUID(c)
+	sessionID := req.SessionID
 	if sessionID == "" {
 		sessionID = "default"
 	}

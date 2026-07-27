@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/static/lib/font-awesome.all.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
-    <title>系统配置 - {{.sys_name}}</title>
+    <title>系统管理 - {{.sys_name}}</title>
     <style>
         .cfg-layout {
             display: flex;
@@ -345,7 +345,7 @@
 <body>
     <div class="container">
         <header>
-            <h1><i class="fas fa-cog"></i> 系统配置</h1>
+            <h1><i class="fas fa-cog"></i> 系统管理</h1>
         </header>
 
         <div class="cfg-layout">
@@ -356,13 +356,20 @@
                 </div>
                 <div class="cfg-sidebar-divider"></div>
                 <div class="cfg-tab" data-tab="kb">
-                    <i class="fas fa-book"></i> 知识库配置
+                    <i class="fas fa-book"></i> 文本处理配置
                 </div>
                 <div class="cfg-tab" data-tab="llm">
                     <i class="fas fa-robot"></i> 大模型配置
                 </div>
                 <div class="cfg-tab" data-tab="sys">
                     <i class="fas fa-sliders-h"></i> 系统配置
+                </div>
+                <div class="cfg-sidebar-divider"></div>
+                <div class="cfg-tab" data-tab="users">
+                    <i class="fas fa-users"></i> 用户管理
+                </div>
+                <div class="cfg-tab" data-tab="agents">
+                    <i class="fas fa-headset"></i> 客服座席
                 </div>
             </nav>
 
@@ -373,19 +380,19 @@
                     <div class="cfg-iframe-wrap">
                         <div class="cfg-iframe-header">
                             <i class="fas fa-database"></i> 知识库管理
-                            <a href="/vdb/idx?uid={{.uid}}&app_source={{.app_source}}" target="_blank">
+                            <a href="/vdb/idx?t={{.token}}" target="_blank">
                                 <i class="fas fa-external-link-alt"></i> 新窗口打开
                             </a>
                         </div>
                         <iframe class="cfg-iframe" id="kbmgmtIframe"
-                                src="/vdb/idx?uid={{.uid}}&app_source={{.app_source}}">
+                                src="/vdb/idx?t={{.token}}">
                         </iframe>
                     </div>
                 </div>
 
-                <!-- 知识库配置 -->
+                <!-- 文本处理配置 -->
                 <div class="cfg-section" id="section-kb">
-                    <h2><i class="fas fa-book"></i> 知识库配置</h2>
+                    <h2><i class="fas fa-book"></i> 文本处理配置</h2>
 
                     <h3 style="font-size:1rem;color:#4b6cb7;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #eef1f6;">
                         <i class="fas fa-sliders-h"></i> 检索与分片参数
@@ -509,6 +516,17 @@
                         </div>
                     </div>
 
+                    <div class="cfg-form-group">
+                        <label>接口认证</label>
+                        <div class="cfg-toggle-row">
+                            <label class="cfg-toggle">
+                                <input type="checkbox" id="sys_api_auth">
+                                <span class="cfg-toggle-slider"></span>
+                            </label>
+                            <span class="cfg-toggle-label" id="apiAuthLabel">未启用</span>
+                        </div>
+                    </div>
+
                     <div class="cfg-form-group" style="margin-top:28px;">
                         <label>
                             聊天提示词模板
@@ -528,11 +546,76 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- 用户管理 -->
+                <div class="cfg-section" id="section-users">
+                    <h2><i class="fas fa-users"></i> 用户管理</h2>
+
+                    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-end;">
+                        <div class="cfg-form-group" style="margin-bottom:0;flex:1;min-width:140px;">
+                            <label>用户名</label>
+                            <input type="text" id="newUserName" placeholder="用户名" style="max-width:200px;">
+                        </div>
+                        <div class="cfg-form-group" style="margin-bottom:0;flex:1;min-width:140px;">
+                            <label>密码</label>
+                            <input type="password" id="newUserPwd" placeholder="密码" style="max-width:200px;">
+                        </div>
+                        <div class="cfg-form-group" style="margin-bottom:0;">
+                            <label>角色</label>
+                            <select id="newUserRole" style="max-width:150px;padding:10px 14px;border:2px solid #e0e3e8;border-radius:8px;font-size:0.9rem;">
+                                <option value="0">普通用户</option>
+                                <option value="1">管理员</option>
+                                <option value="2">客服座席</option>
+                                <option value="3">API用户</option>
+                            </select>
+                        </div>
+                        <div class="cfg-form-group" style="margin-bottom:0;flex:2;min-width:180px;">
+                            <label>备注</label>
+                            <input type="text" id="newUserNote" placeholder="备注" style="max-width:260px;">
+                        </div>
+                        <button class="cfg-btn cfg-btn-save btn-sm" onclick="addUser()">
+                            <i class="fas fa-plus"></i> 添加用户
+                        </button>
+                    </div>
+
+                    <table class="result-table" style="max-width:900px;">
+                        <thead><tr><th>用户名</th><th>角色</th><th>备注</th><th>操作</th></tr></thead>
+                        <tbody id="usersTbody"><tr><td colspan="4" style="text-align:center;color:#999;">加载中...</td></tr></tbody>
+                    </table>
+                </div>
+
+                <!-- 客服座席 -->
+                <div class="cfg-section" id="section-agents">
+                    <h2><i class="fas fa-headset"></i> 在线客服座席</h2>
+
+                    <table class="result-table" id="agentsTable" style="max-width:700px;">
+                        <thead>
+                            <tr>
+                                <th>用户名</th>
+                                <th>登录时间</th>
+                                <th>备注</th>
+                            </tr>
+                        </thead>
+                        <tbody id="agentsTbody">
+                            <tr>
+                                <td colspan="3" style="text-align:center;color:#999;padding:40px;">
+                                    <i class="fas fa-spinner fa-pulse"></i> 加载中...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="cfg-actions">
+                        <button class="cfg-btn cfg-btn-reset" onclick="loadAgents()">
+                            <i class="fas fa-sync-alt"></i> 刷新
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
         <footer>
-            <p>{{.sys_name}} - 系统配置</p>
+            <p>{{.sys_name}} - 系统管理</p>
         </footer>
     </div>
 
@@ -540,6 +623,25 @@
     <div id="cfgToast" class="cfg-toast"></div>
 
     <script>
+        // 从 URL 参数 t 提取 token 并持久化
+        (function() {
+            var params = new URLSearchParams(window.location.search);
+            var t = params.get('t');
+            if (t) {
+                localStorage.setItem('token', t);
+            }
+        })();
+
+        function getToken() {
+            return localStorage.getItem('token') || '';
+        }
+        function authFetch(url, options) {
+            options = options || {};
+            options.headers = options.headers || {};
+            options.headers['Authorization'] = 'Bearer ' + getToken();
+            return fetch(url, options);
+        }
+
         // ============================================================
         // Tab 切换
         // ============================================================
@@ -556,13 +658,16 @@
         document.getElementById('sys_auth').addEventListener('change', function() {
             document.getElementById('authLabel').textContent = this.checked ? '已启用' : '未启用';
         });
+        document.getElementById('sys_api_auth').addEventListener('change', function() {
+            document.getElementById('apiAuthLabel').textContent = this.checked ? '已启用' : '未启用';
+        });
 
         // ============================================================
         // 加载配置
         // ============================================================
         async function loadConfig() {
             try {
-                const resp = await fetch('/api/config');
+                const resp = await authFetch('/api/config');
                 const json = await resp.json();
                 const data = json.data;
 
@@ -571,6 +676,9 @@
                 const auth = data.sys.auth === 'true';
                 document.getElementById('sys_auth').checked = auth;
                 document.getElementById('authLabel').textContent = auth ? '已启用' : '未启用';
+                const apiAuth = data.sys.api_auth !== 'false'; // 默认启用
+                document.getElementById('sys_api_auth').checked = apiAuth;
+                document.getElementById('apiAuthLabel').textContent = apiAuth ? '已启用' : '未启用';
 
                 // 大模型配置
                 document.getElementById('llm_api_uri').value = data.api.llm_api_uri || '';
@@ -622,8 +730,8 @@
             };
 
             try {
-                const resp = await fetch('/api/config', {
-                    method: 'POST',
+                const resp = await authFetch('/api/config', {
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
@@ -659,8 +767,8 @@
             };
 
             try {
-                const resp = await fetch('/api/config', {
-                    method: 'POST',
+                const resp = await authFetch('/api/config', {
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
@@ -682,7 +790,8 @@
             const payload = {
                 sys: {
                     name: document.getElementById('sys_name').value.trim(),
-                    auth: document.getElementById('sys_auth').checked ? 'true' : 'false'
+                    auth: document.getElementById('sys_auth').checked ? 'true' : 'false',
+                    api_auth: document.getElementById('sys_api_auth').checked ? 'true' : 'false'
                 },
                 api: {
                     llm_api_uri: '', llm_api_key: '', llm_model_name: '',
@@ -696,8 +805,8 @@
             };
 
             try {
-                const resp = await fetch('/api/config', {
-                    method: 'POST',
+                const resp = await authFetch('/api/config', {
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
@@ -724,8 +833,111 @@
             toast._timeout = setTimeout(() => { toast.style.display = 'none'; }, 3000);
         }
 
+        // ============================================================
+        // 在线座席
+        // ============================================================
+        async function loadAgents() {
+            try {
+                const resp = await authFetch('/api/agents');
+                const json = await resp.json();
+                const agents = json.agents || [];
+                const tbody = document.getElementById('agentsTbody');
+
+                if (agents.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#999;padding:40px;">暂无在线座席</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = agents.map(a => {
+                    const roleLabel = '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.8rem;background:#e3f2fd;color:#1976d2;">座席</span>';
+                    return `<tr>
+                        <td><i class="fas fa-user-circle" style="color:#4b6cb7;"></i> ${a.user_name} ${roleLabel}</td>
+                        <td>${a.login_time}</td>
+                        <td>${a.note || '-'}</td>
+                    </tr>`;
+                }).join('');
+            } catch (err) {
+                document.getElementById('agentsTbody').innerHTML =
+                    '<tr><td colspan="3" style="text-align:center;color:#c62828;padding:40px;">加载失败: ' + err.message + '</td></tr>';
+            }
+        }
+
+        // ============================================================
+        // 用户管理
+        // ============================================================
+        const ROLE_NAMES = {0:'普通用户', 1:'管理员', 2:'客服座席', 3:'API用户'};
+
+        async function loadUsers() {
+            try {
+                const resp = await authFetch('/api/users');
+                const data = await resp.json();
+                const users = data.data || [];
+                document.getElementById('usersTbody').innerHTML = users.map(u =>
+                    `<tr>
+                        <td><i class="fas fa-user-circle" style="color:#4b6cb7;"></i> ${escHtml2(u.user_name)}</td>
+                        <td>${ROLE_NAMES[u.role] || u.role}</td>
+                        <td>${escHtml2(u.note)}</td>
+                        <td>
+                            <button class="cfg-btn cfg-btn-reset" style="padding:4px 12px;font-size:0.8rem;" onclick="resetPwd('${escHtml2(u.user_name)}')"><i class="fas fa-redo"></i> 重置密码</button>
+                            <button class="cfg-btn cfg-btn-reset" style="padding:4px 12px;font-size:0.8rem;color:#c62828;" onclick="delUser('${escHtml2(u.user_name)}')"><i class="fas fa-trash"></i> 删除</button>
+                        </td>
+                    </tr>`
+                ).join('');
+            } catch(e) { document.getElementById('usersTbody').innerHTML = '<tr><td colspan="4" style="color:#c62828;">加载失败</td></tr>'; }
+        }
+
+        async function addUser() {
+            const userName = document.getElementById('newUserName').value.trim();
+            const userPwd = document.getElementById('newUserPwd').value.trim();
+            const role = parseInt(document.getElementById('newUserRole').value);
+            const note = document.getElementById('newUserNote').value.trim();
+            if (!userName || !userPwd) { alert('用户名和密码不能为空'); return; }
+            try {
+                const resp = await authFetch('/api/users', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({user_name:userName, user_pwd:userPwd, role, note})
+                });
+                const data = await resp.json();
+                if (data.status === 'ok') {
+                    document.getElementById('newUserName').value = '';
+                    document.getElementById('newUserPwd').value = '';
+                    document.getElementById('newUserNote').value = '';
+                    loadUsers();
+                } else { alert(data.error || '添加失败'); }
+            } catch(e) { alert('网络错误: '+e.message); }
+        }
+
+        async function delUser(name) {
+            if (!confirm('确定删除用户 "' + name + '" 吗？')) return;
+            try {
+                const resp = await authFetch('/api/users/' + encodeURIComponent(name), { method: 'DELETE' });
+                const data = await resp.json();
+                if (data.status === 'ok') loadUsers();
+                else alert(data.error || '删除失败');
+            } catch(e) { alert('网络错误: '+e.message); }
+        }
+
+        async function resetPwd(name) {
+            const pwd = prompt('输入用户 "' + name + '" 的新密码：');
+            if (!pwd) return;
+            try {
+                const resp = await authFetch('/api/users/' + encodeURIComponent(name) + '/reset-pwd', {
+                    method: 'PUT',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({user_pwd: pwd})
+                });
+                const data = await resp.json();
+                if (data.status === 'ok') alert('密码已重置');
+                else alert(data.error || '重置失败');
+            } catch(e) { alert('网络错误: '+e.message); }
+        }
+
+        function escHtml2(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
         // 初始加载
         loadConfig();
+        loadUsers();
     </script>
 </body>
 </html>

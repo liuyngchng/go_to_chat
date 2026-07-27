@@ -43,7 +43,41 @@ CREATE TABLE IF NOT EXISTS sys_config (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 用户表
+CREATE TABLE IF NOT EXISTS users (
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_name TEXT NOT NULL UNIQUE,
+    user_pwd TEXT NOT NULL DEFAULT '',
+    role INTEGER NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT ''
+);
+
+-- API Token 表
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_name TEXT NOT NULL,
+    token_preview TEXT NOT NULL DEFAULT '',
+    expires_at DATETIME NOT NULL,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- API 调用日志表
+CREATE TABLE IF NOT EXISTS api_call_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_name TEXT NOT NULL,
+    api_path TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL DEFAULT '',
+    request_body TEXT NOT NULL DEFAULT '',
+    response_body TEXT NOT NULL DEFAULT '',
+    status_code INTEGER NOT NULL DEFAULT 200,
+    error_msg TEXT NOT NULL DEFAULT '',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_vdb_info_uid ON vdb_info(uid);
 CREATE INDEX IF NOT EXISTS idx_vdb_file_info_vdb_id ON vdb_file_info(vdb_id);
 CREATE INDEX IF NOT EXISTS idx_sys_config_key ON sys_config(config_key);
+CREATE INDEX IF NOT EXISTS idx_users_name ON users(user_name);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_name);
+CREATE INDEX IF NOT EXISTS idx_api_call_log_user ON api_call_log(user_name);

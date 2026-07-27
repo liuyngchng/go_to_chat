@@ -1,6 +1,18 @@
 // 知识库管理页 JS
 
-const uid = document.getElementById('uid').value;
+// 获取 token
+function getToken() {
+    return localStorage.getItem('token') || '';
+}
+
+// 带认证头的 fetch 封装
+function authFetch(url, options) {
+    options = options || {};
+    options.headers = options.headers || {};
+    options.headers['Authorization'] = 'Bearer ' + getToken();
+    return fetch(url, options);
+}
+
 let currentKbId = null;
 let selectedFiles = [];
 let refreshInterval = null;
@@ -9,20 +21,13 @@ let refreshInterval = null;
 // 知识库列表
 // ============================================================
 
-function getFormData() {
-    const fd = new FormData();
-    fd.append('uid', uid);
-    return fd;
-}
-
 async function refreshKbList() {
     const sel = document.getElementById('kb_selector');
     const refreshBtn = document.getElementById('kbRefreshBtn');
     refreshBtn.disabled = true;
 
     try {
-        const fd = getFormData();
-        const resp = await fetch('/vdb/my/list', { method: 'POST', body: fd });
+        const resp = await authFetch('/api/vdb');
         const data = await resp.json();
 
         sel.innerHTML = '<option value="">请选择知识库</option>';
@@ -101,12 +106,13 @@ document.getElementById('createKB').addEventListener('click', async function() {
     }
 
     const isPublic = document.getElementById('public_checkbox').checked;
-    const fd = getFormData();
-    fd.append('name', name);
-    fd.append('is_public', isPublic ? 'true' : 'false');
 
     try {
-        const resp = await fetch('/vdb/create', { method: 'POST', body: fd });
+        const resp = await authFetch('/api/vdb', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, is_public: isPublic })
+        });
         const data = await resp.json();
         if (data.status === 'ok') {
             document.getElementById('kb_name').value = '';
@@ -125,11 +131,8 @@ document.getElementById('createKB').addEventListener('click', async function() {
 document.getElementById('deleteBtn').addEventListener('click', async function() {
     if (!currentKbId || !confirm('确定要删除该知识库吗？此操作不可恢复。')) return;
 
-    const fd = getFormData();
-    fd.append('id', currentKbId);
-
     try {
-        const resp = await fetch('/vdb/delete', { method: 'POST', body: fd });
+        const resp = await authFetch('/api/vdb/' + currentKbId, { method: 'DELETE' });
         const data = await resp.json();
         if (data.status === 'ok') {
             currentKbId = null;
@@ -157,11 +160,8 @@ document.getElementById('deleteBtn').addEventListener('click', async function() 
 document.getElementById('setDefaultBtn').addEventListener('click', async function() {
     if (!currentKbId) return;
 
-    const fd = getFormData();
-    fd.append('id', currentKbId);
-
     try {
-        const resp = await fetch('/vdb/set/default', { method: 'POST', body: fd });
+        const resp = await authFetch('/api/vdb/' + currentKbId + '/default', { method: 'PUT' });
         const data = await resp.json();
         if (data.status === 'ok') {
             refreshKbList();
@@ -179,11 +179,8 @@ document.getElementById('setDefaultBtn').addEventListener('click', async functio
 // ============================================================
 
 async function loadFileList(vdbId) {
-    const fd = getFormData();
-    fd.append('vdb_id', vdbId);
-
     try {
-        const resp = await fetch('/vdb/file/list', { method: 'POST', body: fd });
+        const resp = await authFetch('/api/vdb/' + vdbId + '/files');
         const data = await resp.json();
         renderFileList(data.data || []);
         document.getElementById('fileListContainer').style.display = 'block';
@@ -220,11 +217,8 @@ function renderFileList(files) {
 async function deleteFile(fileId) {
     if (!confirm('确定要删除该文件吗？')) return;
 
-    const fd = getFormData();
-    fd.append('file_id', fileId);
-
     try {
-        const resp = await fetch('/vdb/file/delete', { method: 'POST', body: fd });
+        const resp = await authFetch('/api/vdb/file/' + fileId, { method: 'DELETE' });
         const data = await resp.json();
         if (data.status === 'ok' && currentKbId) {
             loadFileList(currentKbId);
@@ -310,12 +304,14 @@ startBtn.addEventListener('click', async function() {
 
     for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        const fd = getFormData();
-        fd.append('vdb_id', currentKbId);
+        const fd = new FormData();
         fd.append('file', file);
 
         try {
-            const resp = await fetch('/vdb/upload', { method: 'POST', body: fd });
+            const resp = await authFetch('/api/vdb/' + currentKbId + '/upload', {
+                method: 'POST',
+                body: fd
+            });
             const data = await resp.json();
             if (data.status !== 'ok') {
                 resultSpan.textContent = '上传失败: ' + (data.error || '未知错误');

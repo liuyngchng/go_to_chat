@@ -18,6 +18,7 @@ import (
 // 高并发 HTTP 连接池（流式 LLM 调用需要更长超时）
 var llmHTTPClient = &http.Client{
 	Transport: &http.Transport{
+		Proxy:                 nil, // 忽略所有代理，直连
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,

@@ -1,7 +1,9 @@
 package store
 
 import (
+	"crypto/md5"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
@@ -91,9 +93,41 @@ func (s *SQLiteStore) migrate() error {
 			description TEXT NOT NULL DEFAULT '',
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+
+		CREATE TABLE IF NOT EXISTS users (
+			uid INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT NOT NULL UNIQUE,
+			user_pwd TEXT NOT NULL DEFAULT '',
+			role INTEGER NOT NULL DEFAULT 0,
+			note TEXT NOT NULL DEFAULT ''
+		);
+
+		CREATE TABLE IF NOT EXISTS api_tokens (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT NOT NULL,
+			token_preview TEXT NOT NULL DEFAULT '',
+			expires_at DATETIME NOT NULL,
+			create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS api_call_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT NOT NULL,
+			api_path TEXT NOT NULL DEFAULT '',
+			method TEXT NOT NULL DEFAULT '',
+			request_body TEXT NOT NULL DEFAULT '',
+			response_body TEXT NOT NULL DEFAULT '',
+			status_code INTEGER NOT NULL DEFAULT 200,
+			error_msg TEXT NOT NULL DEFAULT '',
+			create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
 		`
 	_, err := s.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return s.seedUsers()
 }
 
 // ============================================================
@@ -355,6 +389,224 @@ func (s *SQLiteStore) UpsertPrompt(name, value string, uid int) error {
 // 系统配置 (sys_config)
 // ============================================================
 
+// ============================================================
+// 用户 (users)
+// ============================================================
+
+// GetUserByLogin 按用户名和密码 MD5 查询用户
+func (s *SQLiteStore) GetUserByLogin(userName, md5Pwd string) (*model.User, error) {
+	row := s.db.QueryRow(
+		"SELECT uid, user_name, user_pwd, role, note FROM users WHERE user_name = ? AND user_pwd = ?",
+		userName, md5Pwd,
+	)
+	var u model.User
+	err := row.Scan(&u.UID, &u.UserName, &u.UserPwd, &u.Role, &u.Note)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// GetUserByName 按用户名查询用户
+func (s *SQLiteStore) GetUserByName(userName string) (*model.User, error) {
+	row := s.db.QueryRow(
+		"SELECT uid, user_name, user_pwd, role, note FROM users WHERE user_name = ?",
+		userName,
+	)
+	var u model.User
+	err := row.Scan(&u.UID, &u.UserName, &u.UserPwd, &u.Role, &u.Note)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// md5Hash 计算字符串的 MD5
+func md5Hash(s string) string {
+	h := md5.Sum([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+// seedUsers 种子内置用户（仅当 users 表为空时）
+func (s *SQLiteStore) seedUsers() error {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	builtinUsers := []struct {
+		userName string
+		role     int
+		note     string
+	}{
+		{"user0", model.RoleNormal, "内置普通用户"},
+		{"user1", model.RoleNormal, "内置普通用户"},
+		{"admin", model.RoleAdmin, "内置管理员"},
+		{"person0", model.RoleAgent, "内置客服座席"},
+		{"person1", model.RoleAgent, "内置客服座席"},
+		{"api0", model.RoleAPI, "内置API调用用户"},
+	}
+
+	for _, u := range builtinUsers {
+		pwd := md5Hash(u.userName) // 密码与用户名相同
+		if _, err := s.db.Exec(
+			"INSERT INTO users (user_name, user_pwd, role, note) VALUES (?, ?, ?, ?)",
+			u.userName, pwd, u.role, u.note,
+		); err != nil {
+			return fmt.Errorf("种子用户 %s 插入失败: %w", u.userName, err)
+		}
+	}
+	return nil
+}
+
+// ============================================================
+// 用户管理
+// ============================================================
+
+// ListUsers 获取所有用户列表
+func (s *SQLiteStore) ListUsers() ([]model.User, error) {
+	rows, err := s.db.Query(
+		"SELECT uid, user_name, user_pwd, role, note FROM users ORDER BY uid",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []model.User
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.UID, &u.UserName, &u.UserPwd, &u.Role, &u.Note); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+// CreateUser 创建新用户
+func (s *SQLiteStore) CreateUser(userName, userPwd string, role int, note string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO users (user_name, user_pwd, role, note) VALUES (?, ?, ?, ?)",
+		userName, userPwd, role, note,
+	)
+	return err
+}
+
+// DeleteUserByName 按用户名删除用户
+func (s *SQLiteStore) DeleteUserByName(userName string) error {
+	_, err := s.db.Exec("DELETE FROM users WHERE user_name = ?", userName)
+	return err
+}
+
+// ResetPassword 重置用户密码
+func (s *SQLiteStore) ResetPassword(userName, md5Pwd string) error {
+	_, err := s.db.Exec(
+		"UPDATE users SET user_pwd = ? WHERE user_name = ?",
+		md5Pwd, userName,
+	)
+	return err
+}
+
+// UpdatePassword 修改密码（需验证旧密码）
+func (s *SQLiteStore) UpdatePassword(userName, oldMd5Pwd, newMd5Pwd string) error {
+	result, err := s.db.Exec(
+		"UPDATE users SET user_pwd = ? WHERE user_name = ? AND user_pwd = ?",
+		newMd5Pwd, userName, oldMd5Pwd,
+	)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("旧密码不正确")
+	}
+	return nil
+}
+
+// ============================================================
+// API Token
+// ============================================================
+
+// SaveApiToken 保存 API token 记录
+func (s *SQLiteStore) SaveApiToken(userName, tokenPreview string, expiresAt time.Time) error {
+	_, err := s.db.Exec(
+		"INSERT INTO api_tokens (user_name, token_preview, expires_at) VALUES (?, ?, ?)",
+		userName, tokenPreview, expiresAt,
+	)
+	return err
+}
+
+// GetUserApiTokens 获取用户的有效 API token
+func (s *SQLiteStore) GetUserApiTokens(userName string) ([]model.ApiToken, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_name, token_preview, expires_at, create_time
+		 FROM api_tokens WHERE user_name = ? AND expires_at > datetime('now')
+		 ORDER BY create_time DESC`, userName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []model.ApiToken
+	for rows.Next() {
+		var t model.ApiToken
+		if err := rows.Scan(&t.ID, &t.UserName, &t.TokenPreview, &t.ExpiresAt, &t.CreateTime); err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, t)
+	}
+	return tokens, rows.Err()
+}
+
+// ============================================================
+// API 调用日志
+// ============================================================
+
+// SaveApiCallLog 保存 API 调用记录
+func (s *SQLiteStore) SaveApiCallLog(userName, apiPath, method, reqBody, respBody string, statusCode int, errMsg string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO api_call_log (user_name, api_path, method, request_body, response_body, status_code, error_msg)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		userName, apiPath, method, reqBody, respBody, statusCode, errMsg,
+	)
+	return err
+}
+
+// GetUserApiCallLogs 获取用户的 API 调用记录（最近 100 条）
+func (s *SQLiteStore) GetUserApiCallLogs(userName string) ([]model.ApiCallLog, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_name, api_path, method, request_body, response_body, status_code, error_msg, create_time
+		 FROM api_call_log WHERE user_name = ? ORDER BY create_time DESC LIMIT 100`, userName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []model.ApiCallLog
+	for rows.Next() {
+		var l model.ApiCallLog
+		if err := rows.Scan(&l.ID, &l.UserName, &l.APIPath, &l.Method, &l.RequestBody,
+			&l.ResponseBody, &l.StatusCode, &l.ErrorMsg, &l.CreateTime); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, rows.Err()
+}
+
 // GetConfig 获取单个配置值
 func (s *SQLiteStore) GetConfig(key string) (string, error) {
 	var value string
@@ -401,8 +653,7 @@ func (s *SQLiteStore) GetAllConfigs() (map[string]string, error) {
 }
 
 // SeedDefaultConfigs 初始化默认配置（仅当 sys_config 表为空时执行）
-// 从 cfg.yml 中读取的值作为初始种子
-func (s *SQLiteStore) SeedDefaultConfigs(sysName, sysAuth string, apiCfg APISeedConfig) error {
+func (s *SQLiteStore) SeedDefaultConfigs(sysName, sysAuth string) error {
 	// 检查是否已有配置
 	var count int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM sys_config").Scan(&count)
@@ -416,12 +667,7 @@ func (s *SQLiteStore) SeedDefaultConfigs(sysName, sysAuth string, apiCfg APISeed
 	entries := []struct{ key, value, desc string }{
 		{"sys.name", sysName, "系统名称"},
 		{"sys.auth", sysAuth, "是否启用认证 (true/false)"},
-		{"api.llm_api_uri", apiCfg.LLMAPIURI, "LLM API 地址"},
-		{"api.llm_api_key", apiCfg.LLMAPIKey, "LLM API Key"},
-		{"api.llm_model_name", apiCfg.LLMModelName, "LLM 模型名称"},
-		{"api.embedding_api_uri", apiCfg.EmbeddingAPIURI, "Embedding API 地址"},
-		{"api.embedding_api_key", apiCfg.EmbeddingAPIKey, "Embedding API Key"},
-		{"api.embedding_model_name", apiCfg.EmbeddingModelName, "Embedding 模型名称"},
+		{"sys.api_auth", "true", "是否启用接口认证 (true/false)"},
 		{"prompt.chat_msg", defaultChatPrompt, "聊天提示词模板"},
 			// 知识库参数
 			{"kb.chunk_size", "300", "文本分片大小（字符数）"},
@@ -442,15 +688,6 @@ func (s *SQLiteStore) SeedDefaultConfigs(sysName, sysAuth string, apiCfg APISeed
 	return nil
 }
 
-// APISeedConfig 用于初始化 API 配置的种子数据
-type APISeedConfig struct {
-	LLMAPIURI          string
-	LLMAPIKey          string
-	LLMModelName       string
-	EmbeddingAPIURI    string
-	EmbeddingAPIKey    string
-	EmbeddingModelName string
-}
 
 // DefaultChatPrompt 返回默认聊天提示词模板
 func DefaultChatPrompt() string {

@@ -29,9 +29,9 @@ func NewVdbHandler(cfg *model.Config, kbMgr *kb.Manager, metaStore *store.SQLite
 	}
 }
 
-// MyList 获取用户的知识库列表
+// MyList 获取用户的知识库列表 GET /api/vdb
 func (h *VdbHandler) MyList(c *gin.Context) {
-	uid := getUID(c)
+	uid := getAuthUID(c)
 	list, err := h.kbMgr.GetUserKBs(uid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -43,9 +43,9 @@ func (h *VdbHandler) MyList(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": list})
 }
 
-// PubList 获取公开知识库列表
+// PubList 获取公开知识库列表 GET /api/vdb/pub
 func (h *VdbHandler) PubList(c *gin.Context) {
-	uid := getUID(c)
+	uid := getAuthUID(c)
 	list, err := h.kbMgr.GetPublicKBs(uid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -57,9 +57,9 @@ func (h *VdbHandler) PubList(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": list})
 }
 
-// FileList 获取知识库文件列表
+// FileList 获取知识库文件列表 GET /api/vdb/:id/files
 func (h *VdbHandler) FileList(c *gin.Context) {
-	vdbID := getIntParam(c, "vdb_id")
+	vdbID := getPathIntParam(c, "id")
 	files, err := h.kbMgr.GetFiles(vdbID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -71,10 +71,10 @@ func (h *VdbHandler) FileList(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": files})
 }
 
-// SetDefault 设置默认知识库
+// SetDefault 设置默认知识库 PUT /api/vdb/:id/default
 func (h *VdbHandler) SetDefault(c *gin.Context) {
-	uid := getUID(c)
-	vdbID := getIntParam(c, "id")
+	uid := getAuthUID(c)
+	vdbID := getPathIntParam(c, "id")
 	if err := h.kbMgr.SetDefaultKB(vdbID, uid); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -82,18 +82,22 @@ func (h *VdbHandler) SetDefault(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// Create 创建知识库
+// Create 创建知识库 POST /api/vdb
 func (h *VdbHandler) Create(c *gin.Context) {
-	uid := getUID(c)
-	name := c.PostForm("name")
-	isPublic := c.PostForm("is_public") == "true" || c.PostForm("is_public") == "1"
+	uid := getAuthUID(c)
 
-	if name == "" {
+	var req model.VdbCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+
+	if req.Name == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "知识库名称不能为空"})
 		return
 	}
 
-	id, err := h.kbMgr.CreateKB(name, uid, isPublic)
+	id, err := h.kbMgr.CreateKB(req.Name, uid, req.IsPublic)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -102,10 +106,10 @@ func (h *VdbHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "id": id})
 }
 
-// Delete 删除知识库
+// Delete 删除知识库 DELETE /api/vdb/:id
 func (h *VdbHandler) Delete(c *gin.Context) {
-	uid := getUID(c)
-	vdbID := getIntParam(c, "id")
+	uid := getAuthUID(c)
+	vdbID := getPathIntParam(c, "id")
 	if err := h.kbMgr.DeleteKB(vdbID, uid); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -113,15 +117,10 @@ func (h *VdbHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// Upload 上传文件到知识库
+// Upload 上传文件到知识库 POST /api/vdb/:id/upload (multipart/form-data)
 func (h *VdbHandler) Upload(c *gin.Context) {
-	uid := getUID(c)
-	vdbIDStr := c.PostForm("vdb_id")
-	vdbID, err := strconv.ParseInt(vdbIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的知识库 ID"})
-		return
-	}
+	uid := getAuthUID(c)
+	vdbID := getPathIntParam(c, "id")
 
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -157,9 +156,9 @@ func (h *VdbHandler) Upload(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "file": finfo})
 }
 
-// ProcessInfo 获取文件处理进度
+// ProcessInfo 获取文件处理进度 GET /api/vdb/file/:id/progress
 func (h *VdbHandler) ProcessInfo(c *gin.Context) {
-	fileID := getIntParam(c, "file_id")
+	fileID := getPathIntParam(c, "id")
 	finfo, err := h.store.GetFileByID(fileID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -168,18 +167,17 @@ func (h *VdbHandler) ProcessInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": finfo})
 }
 
-// Search 在知识库中检索
+// Search 在知识库中检索 POST /api/vdb/search
 func (h *VdbHandler) Search(c *gin.Context) {
-	uid := getUID(c)
-	vdbID := getIntParam(c, "vdb_id")
-	query := c.PostForm("query")
+	uid := getAuthUID(c)
 
-	if query == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请输入搜索内容"})
+	var req model.VdbSearchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
 		return
 	}
 
-	result, err := h.kbMgr.SearchInKB(query, vdbID, uid, h.cfg.KB.TopK, h.cfg.KB.ScoreThreshold)
+	result, err := h.kbMgr.SearchInKB(req.Query, req.VdbID, uid, h.cfg.KB.TopK, h.cfg.KB.ScoreThreshold)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -188,10 +186,10 @@ func (h *VdbHandler) Search(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
-// FileDelete 删除文件
+// FileDelete 删除文件 DELETE /api/vdb/file/:id
 func (h *VdbHandler) FileDelete(c *gin.Context) {
-	uid := getUID(c)
-	fileID := getIntParam(c, "file_id")
+	uid := getAuthUID(c)
+	fileID := getPathIntParam(c, "id")
 	if err := h.kbMgr.DeleteFile(fileID, uid); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -199,26 +197,9 @@ func (h *VdbHandler) FileDelete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// ============================================================
-// 辅助函数
-// ============================================================
-
-func getUID(c *gin.Context) string {
-	uid := c.PostForm("uid")
-	if uid == "" {
-		uid = c.Query("uid")
-	}
-	if uid == "" {
-		uid = "default"
-	}
-	return uid
-}
-
-func getIntParam(c *gin.Context, key string) int64 {
-	val := c.PostForm(key)
-	if val == "" {
-		val = c.Query(key)
-	}
+// getPathIntParam 从 URL 路径参数中解析 int64
+func getPathIntParam(c *gin.Context, key string) int64 {
+	val := c.Param(key)
 	n, _ := strconv.ParseInt(val, 10, 64)
 	return n
 }

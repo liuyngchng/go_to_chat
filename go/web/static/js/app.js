@@ -5,6 +5,19 @@ const queryInput = document.getElementById('query-input');
 const sendButton = document.getElementById('send-button');
 const stopButton = document.getElementById('stop-button');
 
+// 获取 token
+function getToken() {
+    return localStorage.getItem('token') || '';
+}
+
+// 带认证头的 fetch 封装
+function authFetch(url, options) {
+    options = options || {};
+    options.headers = options.headers || {};
+    options.headers['Authorization'] = 'Bearer ' + getToken();
+    return fetch(url, options);
+}
+
 let isFetching = false;
 let abortController = null;
 let currentBotMessage = null;
@@ -17,8 +30,8 @@ let sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36
 
 // localStorage key
 function getStorageKey() {
-    const uidEl = document.getElementById('uid');
-    const uid = uidEl ? uidEl.value : 'default';
+    var uidEl = document.getElementById('uid');
+    var uid = uidEl ? uidEl.value : 'default';
     return 'chat2kb_messages_' + uid;
 }
 
@@ -36,6 +49,18 @@ function loadMessages() {
             messages = JSON.parse(raw);
             if (messages.length > MAX_MESSAGES) {
                 messages = messages.slice(-MAX_MESSAGES);
+            }
+            // 清理未完成的消息（含 typing-indicator 或被中断的）
+            var cleaned = false;
+            messages = messages.filter(function(m) {
+                if (m.type === 'bot' && m.text.indexOf('typing-indicator') !== -1) {
+                    cleaned = true;
+                    return false; // 丢掉"思考中..."
+                }
+                return true;
+            });
+            if (cleaned) {
+                localStorage.setItem(getStorageKey(), JSON.stringify(messages));
             }
         }
     } catch (e) {
@@ -106,7 +131,7 @@ stopButton.addEventListener('click', function() {
 // 流式请求
 async function fetchQueryData(query) {
     isFetching = true;
-    sendButton.disabled = true;
+    sendButton.style.display = 'none';
     stopButton.style.display = 'inline-block';
 
     abortController = new AbortController();
@@ -115,22 +140,16 @@ async function fetchQueryData(query) {
     currentBotMessage = addMessage('<div class="typing-indicator"><span></span><span></span><span></span> 思考中...</div>', 'bot');
 
     try {
-        const uid = document.getElementById('uid').value;
-        const appSource = document.getElementById('app_source').value;
-
-        const formData = new URLSearchParams();
-        formData.append('msg', query);
-        formData.append('uid', uid);
-        formData.append('app_source', appSource);
-        formData.append('session_id', sessionId);
-
-        const response = await fetch('/chat', {
+        const response = await authFetch('/api/chat', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Type': 'application/json',
                 'Accept': 'text/event-stream'
             },
-            body: formData.toString(),
+            body: JSON.stringify({
+                msg: query,
+                session_id: sessionId
+            }),
             signal: abortController.signal
         });
 
@@ -259,15 +278,11 @@ async function newChat() {
     if (isFetching && abortController) {
         abortController.abort();
     }
-    const uid = document.getElementById('uid').value;
     try {
-        const formData = new URLSearchParams();
-        formData.append('session_id', sessionId);
-        formData.append('uid', uid);
-        await fetch('/chat/clear', {
+        await authFetch('/api/chat/clear', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: formData.toString()
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId })
         });
     } catch (e) {
         console.warn('清空上下文失败:', e);
@@ -282,7 +297,7 @@ async function newChat() {
 // 重置 UI
 function resetUI() {
     isFetching = false;
-    sendButton.disabled = false;
+    sendButton.style.display = 'inline-block';
     stopButton.style.display = 'none';
     abortController = null;
 }
@@ -292,6 +307,56 @@ const newChatBtn = document.getElementById('newChat');
 if (newChatBtn) {
     newChatBtn.addEventListener('click', newChat);
 }
+
+// 注销
+async function logout() {
+    try {
+        await authFetch('/api/logout', { method: 'POST' });
+    } catch (e) {
+        // ignore
+    }
+    window.location.href = '/login';
+}
+
+// 修改密码
+function showChangePwd() {
+    document.getElementById('pwdModal').style.display = 'flex';
+    document.getElementById('oldPwd').value = '';
+    document.getElementById('newPwd').value = '';
+    document.getElementById('pwdError').style.display = 'none';
+}
+function hideChangePwd() {
+    document.getElementById('pwdModal').style.display = 'none';
+}
+document.getElementById('pwdForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const oldPwd = document.getElementById('oldPwd').value.trim();
+    const newPwd = document.getElementById('newPwd').value.trim();
+    const errDiv = document.getElementById('pwdError');
+    if (!oldPwd || !newPwd) {
+        errDiv.textContent = '密码不能为空';
+        errDiv.style.display = 'block';
+        return;
+    }
+    try {
+        const resp = await authFetch('/api/user/password', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old_pwd: oldPwd, new_pwd: newPwd })
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            hideChangePwd();
+            alert('密码修改成功');
+        } else {
+            errDiv.textContent = data.error || '修改失败';
+            errDiv.style.display = 'block';
+        }
+    } catch (err) {
+        errDiv.textContent = '网络错误: ' + err.message;
+        errDiv.style.display = 'block';
+    }
+});
 
 // 键盘快捷键
 queryInput.addEventListener('keydown', function(e) {

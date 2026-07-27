@@ -40,8 +40,9 @@ type ServerConfig struct {
 
 // SysConfig 系统配置
 type SysConfig struct {
-	Name string `yaml:"name"`
-	Auth bool   `yaml:"auth"`
+	Name    string `yaml:"name"`
+	Auth    bool   `yaml:"auth"`
+	ApiAuth bool   `yaml:"api_auth"`
 }
 
 // APIConfig API 配置
@@ -100,10 +101,28 @@ type ChatMessage struct {
 
 // ChatRequest 聊天请求
 type ChatRequest struct {
-	Msg        string `form:"msg" binding:"required"`
-	UID        string `form:"uid"`
-	SessionID  string `form:"session_id"`
-	AppSource  string `form:"app_source"`
+	Msg       string `form:"msg" json:"msg" binding:"required"`
+	UID       string `form:"uid" json:"uid"`
+	SessionID string `form:"session_id" json:"session_id"`
+	AppSource string `form:"app_source" json:"app_source"`
+}
+
+// LoginRequest 登录请求
+type LoginRequest struct {
+	UserName string `json:"user_name" binding:"required"`
+	UserPwd  string `json:"user_pwd" binding:"required"`
+}
+
+// VdbCreateRequest 创建知识库请求
+type VdbCreateRequest struct {
+	Name     string `json:"name" binding:"required"`
+	IsPublic bool   `json:"is_public"`
+}
+
+// VdbSearchRequest 知识库搜索请求
+type VdbSearchRequest struct {
+	VdbID int64  `json:"vdb_id" binding:"required"`
+	Query string `json:"query" binding:"required"`
 }
 
 // ChatHistory 会话历史
@@ -180,6 +199,72 @@ type VectorRecord struct {
 // ============================================================
 // 系统配置相关
 // ============================================================
+
+// ============================================================
+// 用户相关
+// ============================================================
+
+// Role 常量
+const (
+	RoleNormal = 0 // 普通用户
+	RoleAdmin  = 1 // 管理员
+	RoleAgent  = 2 // 客服座席
+	RoleAPI    = 3 // API 调用用户
+)
+
+// User 用户信息
+type User struct {
+	UID      int64  `json:"uid"`
+	UserName string `json:"user_name"`
+	UserPwd  string `json:"-"` // MD5，不返回给客户端
+	Role     int    `json:"role"`
+	Note     string `json:"note"`
+}
+
+// ApiToken API 调用 token 记录
+type ApiToken struct {
+	ID           int64     `json:"id"`
+	UserName     string    `json:"user_name"`
+	TokenPreview string    `json:"token_preview"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	CreateTime   time.Time `json:"create_time"`
+}
+
+// ApiCallLog API 调用记录
+type ApiCallLog struct {
+	ID           int64     `json:"id"`
+	UserName     string    `json:"user_name"`
+	APIPath      string    `json:"api_path"`
+	Method       string    `json:"method"`
+	RequestBody  string    `json:"request_body"`
+	ResponseBody string    `json:"response_body"`
+	StatusCode   int       `json:"status_code"`
+	ErrorMsg     string    `json:"error_msg"`
+	CreateTime   time.Time `json:"create_time"`
+}
+
+// ============================================================
+// API 请求结构体
+// ============================================================
+
+// CreateUserRequest 管理员创建用户请求
+type CreateUserRequest struct {
+	UserName string `json:"user_name" binding:"required"`
+	UserPwd  string `json:"user_pwd" binding:"required"`
+	Role     int    `json:"role"`
+	Note     string `json:"note"`
+}
+
+// ResetPwdRequest 重置密码请求
+type ResetPwdRequest struct {
+	UserPwd string `json:"user_pwd" binding:"required"`
+}
+
+// ChangePwdRequest 修改自己密码请求
+type ChangePwdRequest struct {
+	OldPwd string `json:"old_pwd" binding:"required"`
+	NewPwd string `json:"new_pwd" binding:"required"`
+}
 
 // ConfigEntry 系统配置项（用于 API 响应）
 type ConfigEntry struct {

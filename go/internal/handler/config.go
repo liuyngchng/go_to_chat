@@ -35,8 +35,9 @@ type ConfigResponse struct {
 }
 
 type SysConfigResp struct {
-	Name string `json:"name"`
-	Auth string `json:"auth"`
+	Name    string `json:"name"`
+	Auth    string `json:"auth"`
+	ApiAuth string `json:"api_auth"`
 }
 
 type APIConfigResp struct {
@@ -69,8 +70,9 @@ type LLMParamsResp struct {
 func (h *ConfigHandler) GetConfig(c *gin.Context) {
 	resp := ConfigResponse{
 		Sys: SysConfigResp{
-			Name: h.cfg.Sys.Name,
-			Auth: boolToStr(h.cfg.Sys.Auth),
+			Name:    h.cfg.Sys.Name,
+			Auth:    boolToStr(h.cfg.Sys.Auth),
+			ApiAuth: boolToStr(h.cfg.Sys.ApiAuth),
 		},
 		API: APIConfigResp{
 			LLMAPIURI:          h.cfg.API.LLMAPIURI,
@@ -117,6 +119,12 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 	if req.Sys.Auth != "" {
 		if err := h.store.SetConfig("sys.auth", req.Sys.Auth, "是否启用认证"); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存认证配置失败: " + err.Error()})
+			return
+		}
+	}
+	if req.Sys.ApiAuth != "" {
+		if err := h.store.SetConfig("sys.api_auth", req.Sys.ApiAuth, "是否启用接口认证"); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存接口认证配置失败: " + err.Error()})
 			return
 		}
 	}

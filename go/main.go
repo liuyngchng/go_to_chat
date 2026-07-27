@@ -79,6 +79,9 @@ func main() {
 	r := gin.New()
 	r.Use(logger.GinLogger(), gin.Recovery())
 
+	// API 调用日志中间件（记录携带 Authorization 头的请求）
+	r.Use(handler.ApiCallLogMiddleware(metaStore))
+
 	// 加载 HTML 模板（从 embed.FS）
 	tmpl, err := template.ParseFS(webFS, "web/templates/*")
 	if err != nil {
@@ -95,31 +98,81 @@ func main() {
 	}
 	r.StaticFS("/static", http.FS(staticFS))
 
-	// 页面路由
-	r.GET("/", h.Page.Index)
-	r.GET("/vdb/idx", h.Page.VdbIndex)
-	r.GET("/admin/config", h.Page.ConfigIndex)
+	// 免认证路由
+	r.GET("/login", h.Auth.LoginPage)
 
-	// 聊天 API
-	r.POST("/chat", h.Chat.Chat)
-	r.POST("/chat/clear", h.Chat.Clear)
+	// 认证 API（JSON）
+	r.POST("/api/login", h.Auth.Login)
+	r.POST("/api/logout", h.Auth.Logout)
 
-	// 知识库管理 API
-	vdb := r.Group("/vdb")
-	vdb.POST("/my/list", h.Vdb.MyList)
-	vdb.POST("/pub/list", h.Vdb.PubList)
-	vdb.POST("/file/list", h.Vdb.FileList)
-	vdb.POST("/set/default", h.Vdb.SetDefault)
-	vdb.POST("/create", h.Vdb.Create)
-	vdb.POST("/delete", h.Vdb.Delete)
-	vdb.POST("/upload", h.Vdb.Upload)
-	vdb.POST("/process/info", h.Vdb.ProcessInfo)
-	vdb.POST("/search", h.Vdb.Search)
-	vdb.POST("/file/delete", h.Vdb.FileDelete)
+	// 需要认证的页面路由
+	authPage := r.Group("/")
+	authPage.Use(h.Auth.AuthMiddleware())
+	{
+		authPage.GET("/", h.Page.Index)
+		authPage.GET("/vdb/idx", h.Page.VdbIndex)
+		authPage.GET("/user/api", h.Page.UserApiIndex)
+	}
 
-	// 系统配置 API
-	r.GET("/api/config", h.Config.GetConfig)
-	r.POST("/api/config", h.Config.UpdateConfig)
+	// 需要认证的 API 路由（受 sys.api_auth 开关控制）
+	authAPI := r.Group("/api")
+	authAPI.Use(h.Auth.ApiAuthMiddleware())
+	{
+		// 聊天
+		authAPI.POST("/chat", h.Chat.Chat)
+		authAPI.POST("/chat/clear", h.Chat.Clear)
+
+		// 在线座席
+		authAPI.GET("/agents", h.Auth.GetOnlineAgents)
+
+		// 当前用户信息
+		authAPI.GET("/me", h.Auth.Me)
+
+		// 系统配置（读取）
+		authAPI.GET("/config", h.Config.GetConfig)
+
+		// 知识库（VDB）
+		authAPI.GET("/vdb", h.Vdb.MyList)
+		authAPI.GET("/vdb/pub", h.Vdb.PubList)
+		authAPI.POST("/vdb", h.Vdb.Create)
+		authAPI.DELETE("/vdb/:id", h.Vdb.Delete)
+		authAPI.PUT("/vdb/:id/default", h.Vdb.SetDefault)
+		authAPI.GET("/vdb/:id/files", h.Vdb.FileList)
+		authAPI.POST("/vdb/:id/upload", h.Vdb.Upload)
+		authAPI.POST("/vdb/search", h.Vdb.Search)
+		authAPI.GET("/vdb/file/:id/progress", h.Vdb.ProcessInfo)
+		authAPI.DELETE("/vdb/file/:id", h.Vdb.FileDelete)
+	}
+
+	// 管理员专属页面路由
+	adminPage := r.Group("/admin")
+	adminPage.Use(h.Auth.AuthMiddleware(), h.Auth.AdminOnlyMiddleware())
+	{
+		adminPage.GET("/config", h.Page.ConfigIndex)
+	}
+
+	// 管理员专属 API
+	adminAPI := r.Group("/api")
+	adminAPI.Use(h.Auth.ApiAuthMiddleware(), h.Auth.AdminOnlyMiddleware())
+	{
+		adminAPI.PUT("/config", h.Config.UpdateConfig)
+
+		// 用户管理
+		adminAPI.GET("/users", h.User.ListUsers)
+		adminAPI.POST("/users", h.User.CreateUser)
+		adminAPI.DELETE("/users/:name", h.User.DeleteUser)
+		adminAPI.PUT("/users/:name/reset-pwd", h.User.ResetUserPwd)
+	}
+
+	// 用户自助 API（受 sys.api_auth 开关控制）
+	userAPI := r.Group("/api/user")
+	userAPI.Use(h.Auth.ApiAuthMiddleware())
+	{
+		userAPI.PUT("/password", h.User.ChangePassword)
+		userAPI.GET("/tokens", h.User.ListMyTokens)
+		userAPI.POST("/token", h.User.GenerateToken)
+		userAPI.GET("/call-logs", h.User.MyCallLogs)
+	}
 
 	// 优雅退出
 	go func() {
