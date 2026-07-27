@@ -29,7 +29,7 @@ const (
 // Manager 知识库管理器
 type Manager struct {
 	cfg       *model.Config
-	store     *store.SQLiteStore
+	store     store.MetaStore
 	embClient *embedding.Client
 	stopCh    chan struct{}
 	mu        sync.RWMutex
@@ -37,7 +37,7 @@ type Manager struct {
 }
 
 // NewManager 创建知识库管理器
-func NewManager(cfg *model.Config, metaStore *store.SQLiteStore) *Manager {
+func NewManager(cfg *model.Config, metaStore store.MetaStore) *Manager {
 	embClient := embedding.New(
 		cfg.API.EmbeddingAPIURI,
 		cfg.API.EmbeddingAPIKey,
@@ -468,10 +468,7 @@ func (m *Manager) getOrCreateStore(vdbID int64) (vdb.VectorStore, error) {
 	// 确保 vdb 目录存在
 	os.MkdirAll(VdbDir, 0755)
 
-	milvusURI := m.cfg.Milvus.URI
-	milvusToken := m.cfg.Milvus.Token
-
-	vs, err := vdb.New(milvusURI, milvusToken, VectorsDB, vdbID)
+	vs, err := vdb.New(m.cfg, vdbID)
 	if err != nil {
 		return nil, err
 	}

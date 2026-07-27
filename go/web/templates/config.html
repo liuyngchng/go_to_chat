@@ -371,6 +371,13 @@
                 <div class="cfg-tab" data-tab="agents">
                     <i class="fas fa-headset"></i> 客服座席
                 </div>
+                <div class="cfg-sidebar-divider"></div>
+                <div class="cfg-tab" data-tab="ai-agents">
+                    <i class="fas fa-robot"></i> AI Agent 管理
+                </div>
+                <div class="cfg-tab" data-tab="workflow">
+                    <i class="fas fa-project-diagram"></i> 工作流编排
+                </div>
             </nav>
 
             <!-- 右侧内容区 -->
@@ -611,6 +618,115 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- AI Agent 管理 -->
+                <div class="cfg-section" id="section-ai-agents">
+                    <h2><i class="fas fa-robot"></i> AI Agent 管理</h2>
+
+                    <div style="margin-bottom:16px;">
+                        <button class="cfg-btn cfg-btn-save" onclick="showAgentModal()">
+                            <i class="fas fa-plus"></i> 新建 Agent
+                        </button>
+                    </div>
+
+                    <table class="result-table" style="max-width:100%;">
+                        <thead><tr><th>名称</th><th>描述</th><th>模型</th><th>创建时间</th><th>操作</th></tr></thead>
+                        <tbody id="aiAgentsTbody"><tr><td colspan="5" style="text-align:center;color:#999;">加载中...</td></tr></tbody>
+                    </table>
+
+                    <!-- Agent 编辑弹窗 -->
+                    <div id="agentModal" class="pwd-modal-overlay" style="display:none;">
+                        <div class="pwd-modal" style="max-width:600px;width:90%;">
+                            <h3 id="agentModalTitle"><i class="fas fa-robot"></i> 新建 Agent</h3>
+                            <form id="agentForm">
+                                <input type="hidden" id="agentEditId" value="0">
+                                <div class="pwd-field">
+                                    <label>名称 <span style="color:#e53935;">*</span></label>
+                                    <input type="text" id="agentName" required maxlength="50" style="width:100%;">
+                                </div>
+                                <div class="pwd-field">
+                                    <label>描述</label>
+                                    <input type="text" id="agentDesc" maxlength="200" style="width:100%;">
+                                </div>
+                                <div class="pwd-field">
+                                    <label>System Prompt <span style="color:#e53935;">*</span></label>
+                                    <textarea id="agentPrompt" required rows="6" style="width:100%;font-family:monospace;font-size:0.85rem;"></textarea>
+                                </div>
+                                <div class="pwd-field">
+                                    <label>模型名称 <span style="color:#999;font-weight:400;">(可选，留空用默认)</span></label>
+                                    <input type="text" id="agentModel" placeholder="如 qwen3.7-plus" style="width:100%;">
+                                </div>
+                                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                                    <div class="pwd-field" style="flex:1;">
+                                        <label>Temperature <span style="color:#999;font-weight:400;">(可选)</span></label>
+                                        <input type="number" id="agentTemp" min="0" max="2" step="0.1" placeholder="默认" style="width:100%;">
+                                    </div>
+                                    <div class="pwd-field" style="flex:1;">
+                                        <label>Top-P <span style="color:#999;font-weight:400;">(可选)</span></label>
+                                        <input type="number" id="agentTopP" min="0" max="1" step="0.01" placeholder="默认" style="width:100%;">
+                                    </div>
+                                    <div class="pwd-field" style="flex:1;">
+                                        <label>Max Tokens <span style="color:#999;font-weight:400;">(可选)</span></label>
+                                        <input type="number" id="agentMaxTok" min="1" max="32768" placeholder="默认" style="width:100%;">
+                                    </div>
+                                </div>
+                                <div class="pwd-field">
+                                    <label>关联知识库 <span style="color:#999;font-weight:400;">(可选多选)</span></label>
+                                    <div id="agentVdbCheckboxes" style="max-height:120px;overflow-y:auto;padding:8px;border:1px solid #e0e3e8;border-radius:6px;"></div>
+                                </div>
+                                <div class="pwd-actions">
+                                    <button type="button" class="cfg-btn cfg-btn-reset" onclick="hideAgentModal()">取消</button>
+                                    <button type="submit" class="cfg-btn cfg-btn-save">保存</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 工作流编排 -->
+                <div class="cfg-section" id="section-workflow">
+                    <h2><i class="fas fa-project-diagram"></i> 工作流编排</h2>
+
+                    <div style="display:flex;gap:20px;min-height:500px;">
+                        <!-- 左侧：工作流列表 -->
+                        <div style="width:260px;flex-shrink:0;border-right:1px solid #eee;padding-right:16px;">
+                            <div style="margin-bottom:12px;display:flex;gap:8px;">
+                                <input type="text" id="newWfName" placeholder="新工作流名称" style="flex:1;padding:8px;border:2px solid #e0e3e8;border-radius:6px;font-size:0.85rem;">
+                                <button class="cfg-btn cfg-btn-save" style="padding:8px 12px;font-size:0.85rem;" onclick="createWorkflow()">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                            <div id="workflowList" style="max-height:500px;overflow-y:auto;">
+                                <div style="color:#999;font-size:0.85rem;text-align:center;padding:20px;">加载中...</div>
+                            </div>
+                        </div>
+
+                        <!-- 右侧：卡片编辑器 -->
+                        <div style="flex:1;min-width:0;">
+                            <div id="wfEditorPlaceholder" style="color:#999;text-align:center;padding:80px 20px;">
+                                <i class="fas fa-arrow-left" style="font-size:2rem;display:block;margin-bottom:16px;"></i>
+                                请先选择或创建一个工作流
+                            </div>
+                            <div id="wfEditor" style="display:none;">
+                                <div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;">
+                                    <input type="text" id="wfEditName" placeholder="工作流名称" style="flex:1;max-width:300px;padding:8px;border:2px solid #e0e3e8;border-radius:6px;">
+                                    <button class="cfg-btn cfg-btn-save" style="padding:8px 16px;font-size:0.85rem;" onclick="saveWorkflow()">
+                                        <i class="fas fa-check"></i> 保存工作流
+                                    </button>
+                                    <button class="cfg-btn cfg-btn-reset" style="padding:8px 16px;font-size:0.85rem;color:#c62828;" onclick="deleteWorkflow()">
+                                        <i class="fas fa-trash"></i> 删除
+                                    </button>
+                                </div>
+                                <div id="wfCards" style="display:flex;flex-direction:column;gap:12px;"></div>
+                                <div style="margin-top:12px;">
+                                    <button class="cfg-btn cfg-btn-save" style="padding:10px 20px;" onclick="addWfCard()">
+                                        <i class="fas fa-plus"></i> 添加步骤
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -631,6 +747,10 @@
                 localStorage.setItem('token', t);
             }
         })();
+
+        // Go template parses double-brace; use hex escapes to define template variable delimiters
+        var T_OPEN = '\x7B\x7B';   // double-open-brace
+        var T_CLOSE = '\x7D\x7D';  // double-close-brace
 
         function getToken() {
             return localStorage.getItem('token') || '';
@@ -834,6 +954,415 @@
         }
 
         // ============================================================
+        // AI Agent 管理
+        // ============================================================
+
+        async function loadAiAgents() {
+            try {
+                const resp = await authFetch('/api/ai-agents');
+                const json = await resp.json();
+                const agents = json.data || [];
+                const tbody = document.getElementById('aiAgentsTbody');
+                if (agents.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px;">暂无 Agent</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = agents.map(a => {
+                    var model = a.model_name || '<span style="color:#999;">默认</span>';
+                    var desc = (a.description || '').substring(0, 40) + ((a.description||'').length > 40 ? '...' : '');
+                    return '<tr>' +
+                        '<td><i class="fas fa-robot" style="color:#4b6cb7;"></i> ' + escHtml2(a.name) + '</td>' +
+                        '<td>' + escHtml2(desc) + '</td>' +
+                        '<td>' + model + '</td>' +
+                        '<td>' + (a.created_at || '').substring(0,10) + '</td>' +
+                        '<td>' +
+                            '<button class="cfg-btn cfg-btn-reset" style="padding:4px 12px;font-size:0.8rem;" onclick="editAgent(' + a.id + ')"><i class="fas fa-edit"></i> 编辑</button> ' +
+                            '<button class="cfg-btn cfg-btn-reset" style="padding:4px 12px;font-size:0.8rem;color:#c62828;" onclick="delAgent(' + a.id + ')"><i class="fas fa-trash"></i> 删除</button>' +
+                        '</td>' +
+                    '</tr>';
+                }).join('');
+            } catch(e) {
+                document.getElementById('aiAgentsTbody').innerHTML = '<tr><td colspan="5" style="color:#c62828;">加载失败: ' + e.message + '</td></tr>';
+            }
+        }
+
+        function showAgentModal() {
+            document.getElementById('agentEditId').value = '0';
+            document.getElementById('agentModalTitle').innerHTML = '<i class="fas fa-robot"></i> 新建 Agent';
+            document.getElementById('agentName').value = '';
+            document.getElementById('agentDesc').value = '';
+            document.getElementById('agentPrompt').value = '';
+            document.getElementById('agentModel').value = '';
+            document.getElementById('agentTemp').value = '';
+            document.getElementById('agentTopP').value = '';
+            document.getElementById('agentMaxTok').value = '';
+            document.getElementById('agentModal').style.display = 'flex';
+            loadVdbChecks([]);
+        }
+
+        async function editAgent(id) {
+            try {
+                const resp = await authFetch('/api/ai-agents/' + id);
+                const json = await resp.json();
+                const a = json.data;
+                document.getElementById('agentEditId').value = a.id;
+                document.getElementById('agentModalTitle').innerHTML = '<i class="fas fa-edit"></i> 编辑 Agent';
+                document.getElementById('agentName').value = a.name || '';
+                document.getElementById('agentDesc').value = a.description || '';
+                document.getElementById('agentPrompt').value = a.system_prompt || '';
+                document.getElementById('agentModel').value = a.model_name || '';
+                document.getElementById('agentTemp').value = a.temperature != null ? a.temperature : '';
+                document.getElementById('agentTopP').value = a.top_p != null ? a.top_p : '';
+                document.getElementById('agentMaxTok').value = a.max_tokens != null ? a.max_tokens : '';
+                // vdb_ids
+                var currentIds = [];
+                if (a.vdb_ids && a.vdb_ids !== '[]') {
+                    try { currentIds = JSON.parse(a.vdb_ids); } catch(e) {}
+                }
+                loadVdbChecks(currentIds);
+                document.getElementById('agentModal').style.display = 'flex';
+            } catch(e) {
+                showToast('加载 Agent 失败: ' + e.message, 'error');
+            }
+        }
+
+        function hideAgentModal() {
+            document.getElementById('agentModal').style.display = 'none';
+        }
+
+        async function loadVdbChecks(selectedIds) {
+            try {
+                const resp = await authFetch('/api/vdb');
+                const json = await resp.json();
+                const vdbs = json.data || [];
+                var h = '';
+                vdbs.forEach(function(v) {
+                    var checked = selectedIds.indexOf(v.id) >= 0 ? 'checked' : '';
+                    h += '<label style="display:block;margin:2px 0;font-size:0.85rem;"><input type="checkbox" value="' + v.id + '" ' + checked + '> ' + escHtml2(v.name) + '</label>';
+                });
+                document.getElementById('agentVdbCheckboxes').innerHTML = h || '<span style="color:#999;font-size:0.85rem;">暂无知识库</span>';
+            } catch(e) {
+                document.getElementById('agentVdbCheckboxes').innerHTML = '<span style="color:#c62828;">加载失败</span>';
+            }
+        }
+
+        document.getElementById('agentForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            var id = parseInt(document.getElementById('agentEditId').value) || 0;
+            var name = document.getElementById('agentName').value.trim();
+            var prompt = document.getElementById('agentPrompt').value.trim();
+            if (!name || !prompt) { alert('名称和 System Prompt 不能为空'); return; }
+
+            // 收集选中的 vdb_ids
+            var checks = document.querySelectorAll('#agentVdbCheckboxes input[type=checkbox]:checked');
+            var vdbIds = [];
+            checks.forEach(function(cb) { vdbIds.push(parseInt(cb.value)); });
+
+            var payload = {
+                name: name,
+                description: document.getElementById('agentDesc').value.trim(),
+                system_prompt: prompt,
+                model_name: document.getElementById('agentModel').value.trim(),
+                temperature: document.getElementById('agentTemp').value ? parseFloat(document.getElementById('agentTemp').value) : null,
+                top_p: document.getElementById('agentTopP').value ? parseFloat(document.getElementById('agentTopP').value) : null,
+                max_tokens: document.getElementById('agentMaxTok').value ? parseInt(document.getElementById('agentMaxTok').value) : null,
+                vdb_ids: vdbIds
+            };
+
+            try {
+                var url = id > 0 ? '/api/ai-agents/' + id : '/api/ai-agents';
+                var method = id > 0 ? 'PUT' : 'POST';
+                var resp = await authFetch(url, {
+                    method: method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                var data = await resp.json();
+                if (data.status === 'ok') {
+                    hideAgentModal();
+                    loadAiAgents();
+                    showToast(id > 0 ? 'Agent 已更新' : 'Agent 已创建', 'success');
+                } else {
+                    showToast('保存失败: ' + (data.error || '未知错误'), 'error');
+                }
+            } catch(err) {
+                showToast('网络错误: ' + err.message, 'error');
+            }
+        });
+
+        async function delAgent(id) {
+            if (!confirm('确定删除该 Agent？')) return;
+            try {
+                var resp = await authFetch('/api/ai-agents/' + id, { method: 'DELETE' });
+                var data = await resp.json();
+                if (data.status === 'ok') {
+                    loadAiAgents();
+                    showToast('Agent 已删除', 'success');
+                } else {
+                    showToast('删除失败: ' + (data.error || ''), 'error');
+                }
+            } catch(err) {
+                showToast('网络错误: ' + err.message, 'error');
+            }
+        }
+
+        // ============================================================
+        // 工作流编排
+        // ============================================================
+
+        var currentWfId = 0;
+        var currentWfCards = [];
+
+        async function loadWorkflowList() {
+            try {
+                var resp = await authFetch('/api/workflows');
+                var json = await resp.json();
+                var wfs = json.data || [];
+                var h = '';
+                wfs.forEach(function(w) {
+                    var active = w.id === currentWfId ? ' style="background:#e8ecf2;border-left:3px solid #4b6cb7;"' : '';
+                    h += '<div class="wf-list-item" onclick="selectWorkflow(' + w.id + ')"' + active + ' style="padding:10px 12px;margin:4px 0;cursor:pointer;border-radius:6px;border-left:3px solid transparent;transition:all 0.2s;">' +
+                        '<div style="font-weight:600;font-size:0.9rem;">' + escHtml2(w.name) + '</div>' +
+                        '<div style="color:#999;font-size:0.8rem;">' + escHtml2(w.description||'') + '</div>' +
+                    '</div>';
+                });
+                document.getElementById('workflowList').innerHTML = h || '<div style="color:#999;font-size:0.85rem;text-align:center;padding:20px;">暂无工作流</div>';
+            } catch(e) {
+                document.getElementById('workflowList').innerHTML = '<div style="color:#c62828;font-size:0.85rem;text-align:center;padding:20px;">加载失败</div>';
+            }
+        }
+
+        async function createWorkflow() {
+            var name = document.getElementById('newWfName').value.trim();
+            if (!name) { alert('请输入工作流名称'); return; }
+            try {
+                var resp = await authFetch('/api/workflows', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: name, description: '', nodes: [{id: 'step_1', agent_id: 0, agent_name: '', input_template: T_OPEN + 'user_query' + T_CLOSE, output_var: 'output', order_index: 0, is_final: true}]})
+                });
+                var data = await resp.json();
+                if (data.status === 'ok') {
+                    document.getElementById('newWfName').value = '';
+                    showToast('工作流已创建', 'success');
+                    loadWorkflowList();
+                    await selectWorkflow(data.id);
+                } else {
+                    showToast('创建失败: ' + (data.error||''), 'error');
+                }
+            } catch(err) {
+                showToast('网络错误: ' + err.message, 'error');
+            }
+        }
+
+        async function selectWorkflow(id) {
+            currentWfId = id;
+            loadWorkflowList();
+            try {
+                var resp = await authFetch('/api/workflows/' + id);
+                var json = await resp.json();
+                var wf = json.data;
+                document.getElementById('wfEditName').value = wf.name || '';
+                currentWfCards = wf.nodes || [];
+                document.getElementById('wfEditorPlaceholder').style.display = 'none';
+                document.getElementById('wfEditor').style.display = 'block';
+                renderWfCards();
+            } catch(err) {
+                showToast('加载工作流失败: ' + err.message, 'error');
+            }
+        }
+
+        function renderWfCards() {
+            var h = '';
+            currentWfCards.forEach(function(card, idx) {
+                var isLast = idx === currentWfCards.length - 1;
+                // 构建可用变量列表
+                var availVars = [T_OPEN + 'user_query' + T_CLOSE, T_OPEN + 'history' + T_CLOSE];
+                for (var j = 0; j < idx; j++) {
+                    var vn = currentWfCards[j].output_var;
+                    if (vn) availVars.push(T_OPEN + vn + T_CLOSE);
+                }
+                h += '<div class="wf-card" draggable="true" data-idx="' + idx + '" style="background:#fafbfc;border:2px solid #e0e3e8;border-radius:8px;padding:16px;cursor:move;transition:box-shadow 0.2s;">' +
+                    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
+                        '<strong style="font-size:0.95rem;"><i class="fas fa-grip-vertical" style="color:#999;margin-right:8px;"></i> 步骤 ' + (idx+1) + '</strong>' +
+                        '<div style="display:flex;gap:6px;align-items:center;">' +
+                            (isLast ? '<span style="font-size:0.8rem;color:#4b6cb7;margin-right:8px;"><i class="fas fa-star"></i> 最终输出</span>' : '') +
+                            '<button class="cfg-btn cfg-btn-reset" style="padding:2px 8px;font-size:0.75rem;" onclick="event.stopPropagation();delWfCard(' + idx + ')"><i class="fas fa-times"></i></button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="margin-bottom:8px;">' +
+                        '<label style="font-size:0.82rem;font-weight:600;color:#555;">Agent</label>' +
+                        '<select class="wf-agent-select" data-idx="' + idx + '" onchange="onCardChange()" style="width:100%;padding:8px;border:2px solid #e0e3e8;border-radius:6px;margin-top:4px;"></select>' +
+                    '</div>' +
+                    '<div style="margin-bottom:8px;">' +
+                        '<label style="font-size:0.82rem;font-weight:600;color:#555;">输入模板 <span style="color:#999;font-weight:400;">(用 ' + T_OPEN + 'var' + T_CLOSE + ' 引用上游输出)</span></label>' +
+                        '<textarea class="wf-input-tmpl" data-idx="' + idx + '" onchange="onCardChange()" rows="3" style="width:100%;padding:8px;border:2px solid #e0e3e8;border-radius:6px;font-family:monospace;font-size:0.82rem;margin-top:4px;resize:vertical;">' + escHtml2(card.input_template||'') + '</textarea>' +
+                    '</div>' +
+                    '<div style="margin-bottom:4px;">' +
+                        '<label style="font-size:0.82rem;font-weight:600;color:#555;">输出变量名</label>' +
+                        '<input type="text" class="wf-outputvar" data-idx="' + idx + '" value="' + escHtml2(card.output_var||'') + '" onchange="onCardChange()" placeholder="如 intent" style="width:100%;padding:8px;border:2px solid #e0e3e8;border-radius:6px;margin-top:4px;font-family:monospace;">' +
+                    '</div>' +
+                    '<div style="font-size:0.78rem;color:#999;margin-top:4px;">可用变量: ' + availVars.join(' ') + '</div>' +
+                '</div>';
+            });
+            document.getElementById('wfCards').innerHTML = h;
+
+            // Load agent select options
+            loadAgentSelects();
+            setupDrag();
+        }
+
+        var dragSrcIdx = -1;
+        function setupDrag() {
+            document.querySelectorAll('.wf-card').forEach(function(card) {
+                card.addEventListener('dragstart', function(e) {
+                    dragSrcIdx = parseInt(card.dataset.idx);
+                    card.style.opacity = '0.5';
+                });
+                card.addEventListener('dragend', function(e) {
+                    card.style.opacity = '1';
+                });
+                card.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    card.style.boxShadow = '0 0 0 2px #4b6cb7';
+                });
+                card.addEventListener('dragleave', function(e) {
+                    card.style.boxShadow = '';
+                });
+                card.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    card.style.boxShadow = '';
+                    var dstIdx = parseInt(card.dataset.idx);
+                    if (dragSrcIdx >= 0 && dstIdx >= 0 && dragSrcIdx !== dstIdx) {
+                        var moved = currentWfCards.splice(dragSrcIdx, 1)[0];
+                        currentWfCards.splice(dstIdx, 0, moved);
+                        // 重新设置 is_final
+                        for (var i = 0; i < currentWfCards.length; i++) {
+                            currentWfCards[i].is_final = (i === currentWfCards.length - 1);
+                            currentWfCards[i].order_index = i;
+                        }
+                        renderWfCards();
+                    }
+                });
+            });
+        }
+
+        async function loadAgentSelects() {
+            try {
+                var resp = await authFetch('/api/ai-agents/public');
+                var json = await resp.json();
+                var agents = json.data || [];
+                var opts = agents.map(function(a) { return '<option value="' + a.id + '">' + escHtml2(a.name) + '</option>'; }).join('');
+                document.querySelectorAll('.wf-agent-select').forEach(function(sel) {
+                    var idx = parseInt(sel.dataset.idx);
+                    var currentVal = currentWfCards[idx].agent_id;
+                    sel.innerHTML = '<option value="0">-- 选择 Agent --</option>' + opts;
+                    sel.value = currentVal;
+                });
+            } catch(e) {
+                console.error('加载 agent 列表失败', e);
+            }
+        }
+
+        function onCardChange() {
+            // 同步 UI 到 currentWfCards 数组
+            document.querySelectorAll('.wf-agent-select').forEach(function(sel) {
+                var idx = parseInt(sel.dataset.idx);
+                currentWfCards[idx].agent_id = parseInt(sel.value) || 0;
+                currentWfCards[idx].agent_name = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
+            });
+            document.querySelectorAll('.wf-input-tmpl').forEach(function(ta) {
+                var idx = parseInt(ta.dataset.idx);
+                currentWfCards[idx].input_template = ta.value;
+            });
+            document.querySelectorAll('.wf-outputvar').forEach(function(inp) {
+                var idx = parseInt(inp.dataset.idx);
+                currentWfCards[idx].output_var = inp.value;
+            });
+        }
+
+        function addWfCard() {
+            var idx = currentWfCards.length;
+            currentWfCards.push({
+                id: 'step_' + (idx + 1),
+                agent_id: 0,
+                agent_name: '',
+                input_template: T_OPEN + 'user_query' + T_CLOSE,
+                output_var: 'output_' + (idx + 1),
+                order_index: idx,
+                is_final: true
+            });
+            // 更新其他节点
+            for (var i = 0; i < currentWfCards.length; i++) {
+                currentWfCards[i].is_final = (i === currentWfCards.length - 1);
+                currentWfCards[i].order_index = i;
+            }
+            renderWfCards();
+        }
+
+        function delWfCard(idx) {
+            if (currentWfCards.length <= 1) { alert('工作流至少需要一个节点'); return; }
+            if (!confirm('删除步骤 ' + (idx+1) + '？')) return;
+            currentWfCards.splice(idx, 1);
+            for (var i = 0; i < currentWfCards.length; i++) {
+                currentWfCards[i].is_final = (i === currentWfCards.length - 1);
+                currentWfCards[i].order_index = i;
+            }
+            renderWfCards();
+        }
+
+        async function saveWorkflow() {
+            onCardChange();
+            var name = document.getElementById('wfEditName').value.trim();
+            if (!name) { alert('请输入工作流名称'); return; }
+            if (currentWfCards.length === 0) { alert('请至少添加一个步骤'); return; }
+            // 检查所有节点都有 agent
+            for (var i = 0; i < currentWfCards.length; i++) {
+                if (!currentWfCards[i].agent_id) {
+                    alert('步骤 ' + (i+1) + ' 未选择 Agent');
+                    return;
+                }
+            }
+            try {
+                var resp = await authFetch('/api/workflows/' + currentWfId, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: name, description: '', nodes: currentWfCards})
+                });
+                var data = await resp.json();
+                if (data.status === 'ok') {
+                    showToast('工作流已保存', 'success');
+                    loadWorkflowList();
+                } else {
+                    showToast('保存失败: ' + (data.error||''), 'error');
+                }
+            } catch(err) {
+                showToast('网络错误: ' + err.message, 'error');
+            }
+        }
+
+        async function deleteWorkflow() {
+            if (!confirm('确定删除该工作流？此操作不可恢复。')) return;
+            try {
+                var resp = await authFetch('/api/workflows/' + currentWfId, { method: 'DELETE' });
+                var data = await resp.json();
+                if (data.status === 'ok') {
+                    currentWfId = 0;
+                    currentWfCards = [];
+                    document.getElementById('wfEditor').style.display = 'none';
+                    document.getElementById('wfEditorPlaceholder').style.display = 'block';
+                    document.getElementById('newWfName').value = '';
+                    loadWorkflowList();
+                    showToast('工作流已删除', 'success');
+                } else {
+                    showToast('删除失败: ' + (data.error||''), 'error');
+                }
+            } catch(err) {
+                showToast('网络错误: ' + err.message, 'error');
+            }
+        }
+
+        // ============================================================
         // 在线座席
         // ============================================================
         async function loadAgents() {
@@ -938,6 +1467,8 @@
         // 初始加载
         loadConfig();
         loadUsers();
+        loadAiAgents();
+        loadWorkflowList();
     </script>
 </body>
 </html>

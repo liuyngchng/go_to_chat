@@ -17,11 +17,11 @@ import (
 type VdbHandler struct {
 	cfg   *model.Config
 	kbMgr *kb.Manager
-	store *store.SQLiteStore
+	store store.MetaStore
 }
 
 // NewVdbHandler 创建知识库处理器
-func NewVdbHandler(cfg *model.Config, kbMgr *kb.Manager, metaStore *store.SQLiteStore) *VdbHandler {
+func NewVdbHandler(cfg *model.Config, kbMgr *kb.Manager, metaStore store.MetaStore) *VdbHandler {
 	return &VdbHandler{
 		cfg:   cfg,
 		kbMgr: kbMgr,

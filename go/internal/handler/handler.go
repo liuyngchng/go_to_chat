@@ -24,22 +24,26 @@ func getAuthUID(c *gin.Context) string {
 
 // Handler 聚合所有处理器
 type Handler struct {
-	Page   *PageHandler
-	Chat   *ChatHandler
-	Vdb    *VdbHandler
-	Config *ConfigHandler
-	Auth   *AuthHandler
-	User   *UserHandler
+	Page     *PageHandler
+	Chat     *ChatHandler
+	Vdb      *VdbHandler
+	Config   *ConfigHandler
+	Auth     *AuthHandler
+	User     *UserHandler
+	Agent    *AgentHandler
+	Workflow *WorkflowHandler
 }
 
 // New 创建处理器
-func New(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore *store.SQLiteStore) *Handler {
+func New(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore store.MetaStore) *Handler {
 	return &Handler{
-		Page:   NewPageHandler(cfg),
-		Chat:   NewChatHandler(cfg, kbMgr, sessionMgr, metaStore),
-		Vdb:    NewVdbHandler(cfg, kbMgr, metaStore),
-		Config: NewConfigHandler(cfg, metaStore),
-		Auth:   NewAuthHandler(cfg, metaStore),
-		User:   NewUserHandler(metaStore),
+		Page:     NewPageHandler(cfg),
+		Chat:     NewChatHandler(cfg, kbMgr, sessionMgr, metaStore),
+		Vdb:      NewVdbHandler(cfg, kbMgr, metaStore),
+		Config:   NewConfigHandler(cfg, metaStore),
+		Auth:     NewAuthHandler(cfg, metaStore),
+		User:     NewUserHandler(metaStore),
+		Agent:    NewAgentHandler(metaStore),
+		Workflow: NewWorkflowHandler(metaStore),
 	}
 }

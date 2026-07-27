@@ -2,6 +2,9 @@ package vdb
 
 import "go_to_chat/internal/model"
 
+// VectorsDB 本地向量数据库文件路径
+const VectorsDB = "./vdb/vectors.db"
+
 // VectorStore 向量存储接口
 type VectorStore interface {
 	// EnsureCollection 确保 collection 存在，不存在则创建

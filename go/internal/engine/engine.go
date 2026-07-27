@@ -1,0 +1,257 @@
+package engine
+
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+
+	"go_to_chat/internal/kb"
+	"go_to_chat/internal/llm"
+	"go_to_chat/internal/model"
+	"go_to_chat/internal/store"
+)
+
+// EngineEvent 工作流执行事件
+type EngineEvent struct {
+	Type    string `json:"type"`    // "progress" | "chunk" | "done" | "error"
+	Step    int    `json:"step"`
+	Total   int    `json:"total"`
+	Agent   string `json:"agent"`
+	Content string `json:"content"` // chunk 或 error 内容
+	Error   error  `json:"-"`       // 内部使用
+}
+
+// Engine 工作流执行引擎
+type Engine struct {
+	cfg       *model.Config
+	kbMgr     *kb.Manager
+	store     store.MetaStore
+	baseLLM   *llm.Client
+}
+
+// NewEngine 创建引擎
+func NewEngine(cfg *model.Config, kbMgr *kb.Manager, metaStore store.MetaStore) *Engine {
+	llmClient := llm.New(
+		cfg.API.LLMAPIURI,
+		cfg.API.LLMAPIKey,
+		cfg.API.LLMModelName,
+	)
+	llmClient.SetParams(cfg.LLM.Temperature, cfg.LLM.TopP, cfg.LLM.MaxTokens)
+
+	return &Engine{
+		cfg:     cfg,
+		kbMgr:   kbMgr,
+		store:   metaStore,
+		baseLLM: llmClient,
+	}
+}
+
+// ExecuteStream 执行工作流，返回事件通道。
+// 非最终节点：同步执行，发 progress 事件。
+// 最终节点：流式执行，发 progress + chunk 事件。
+// 最后发 done 事件。
+func (e *Engine) ExecuteStream(
+	workflowID int64,
+	userQuery string,
+	uid string,
+	messages []ChatMsg,
+) <-chan EngineEvent {
+	eventCh := make(chan EngineEvent, 50)
+
+	go func() {
+		defer close(eventCh)
+
+		// 1. 加载工作流
+		workflow, err := e.store.GetWorkflow(workflowID)
+		if err != nil {
+			eventCh <- EngineEvent{Type: "error", Content: "加载工作流失败: " + err.Error(), Error: err}
+			return
+		}
+		if workflow == nil {
+			eventCh <- EngineEvent{Type: "error", Content: "工作流不存在", Error: fmt.Errorf("workflow %d not found", workflowID)}
+			return
+		}
+		if len(workflow.Nodes) == 0 {
+			eventCh <- EngineEvent{Type: "error", Content: "工作流没有节点", Error: fmt.Errorf("empty workflow")}
+			return
+		}
+
+		// 2. 排序节点（按 OrderIndex）
+		nodes := workflow.Nodes
+		total := len(nodes)
+
+		// 3. 初始化变量池
+		vars := map[string]string{
+			"user_query": userQuery,
+			"history":    FormatHistory(messages),
+		}
+
+		// 4. 顺序执行每个节点
+		for i, node := range nodes {
+			// 加载 Agent
+			agent, err := e.store.GetAgent(node.AgentID)
+			if err != nil || agent == nil {
+				eventCh <- EngineEvent{
+					Type:    "error",
+					Content: fmt.Sprintf("节点 %s 引用的智能体 (ID: %d) 不存在", node.ID, node.AgentID),
+					Error:   fmt.Errorf("agent %d not found", node.AgentID),
+				}
+				return
+			}
+
+			// 发送进度事件
+			eventCh <- EngineEvent{
+				Type:  "progress",
+				Step:  i + 1,
+				Total: total,
+				Agent: agent.Name,
+			}
+
+			slog.Info("workflow step", "workflow", workflow.Name, "step", i+1, "agent", agent.Name)
+
+			// 渲染输入模板
+			input := ResolveTemplate(node.InputTemplate, vars)
+
+			// 知识库检索（如果 agent 绑定了 vdb_ids）
+			kbContext := ""
+			if agent.VdbIDs != "" && agent.VdbIDs != "[]" {
+				var vdbIDs []int64
+				if err := json.Unmarshal([]byte(agent.VdbIDs), &vdbIDs); err == nil && len(vdbIDs) > 0 {
+					for _, vdbID := range vdbIDs {
+						// 搜索每个关联的知识库
+						ctx, err := e.kbMgr.SearchInKB(userQuery, vdbID, uid, e.cfg.KB.TopK, e.cfg.KB.ScoreThreshold)
+						if err == nil && ctx != "" {
+							kbContext += ctx + "\n"
+						}
+					}
+				}
+			}
+
+			// 构建 system prompt
+			systemPrompt := buildSystemPrompt(agent.SystemPrompt, kbContext)
+
+			// 选择 LLM 客户端（使用 Agent 特定的参数，或默认）
+			llmClient := e.getLLMClient(agent)
+
+			if node.IsFinal || i == total-1 {
+				// 最终节点：流式输出
+				chunkCh, errCh := llmClient.ChatStream(systemPrompt, input)
+
+				for chunk := range chunkCh {
+					eventCh <- EngineEvent{
+						Type:    "chunk",
+						Step:    i + 1,
+						Total:   total,
+						Agent:   agent.Name,
+						Content: chunk,
+					}
+				}
+
+				// 检查流式错误
+				select {
+				case err := <-errCh:
+					if err != nil {
+						eventCh <- EngineEvent{
+							Type:    "chunk",
+							Step:    i + 1,
+							Total:   total,
+							Agent:   agent.Name,
+							Content: fmt.Sprintf("[错误] %v", err),
+						}
+					}
+				default:
+				}
+			} else {
+				// 非最终节点：同步调用
+				fullOutput, err := llmClient.Chat(systemPrompt, input)
+				if err != nil {
+					slog.Warn("workflow node error", "node", node.ID, "agent", agent.Name, "error", err)
+					fullOutput = fmt.Sprintf("[错误] %v", err)
+				}
+
+				// 存储输出到变量池（供下游引用）
+				vars[node.OutputVar] = fullOutput
+				// 也用 node.ID 做 key（双 key，灵活引用）
+				vars[node.ID] = fullOutput
+			}
+		}
+
+		// 发送完成事件
+		eventCh <- EngineEvent{Type: "done", Total: total}
+	}()
+
+	return eventCh
+}
+
+// getLLMClient 获取 LLM 客户端（使用 Agent 特定参数或默认）
+func (e *Engine) getLLMClient(agent *model.AgentDef) *llm.Client {
+	modelName := e.cfg.API.LLMModelName
+	apiURI := e.cfg.API.LLMAPIURI
+	apiKey := e.cfg.API.LLMAPIKey
+
+	if agent.ModelName != "" {
+		modelName = agent.ModelName
+	}
+
+	client := llm.New(apiURI, apiKey, modelName)
+
+	// 使用 Agent 特定参数或全局默认
+	temp := e.cfg.LLM.Temperature
+	topP := e.cfg.LLM.TopP
+	maxTok := e.cfg.LLM.MaxTokens
+
+	if agent.Temperature != nil {
+		temp = *agent.Temperature
+	}
+	if agent.TopP != nil {
+		topP = *agent.TopP
+	}
+	if agent.MaxTokens != nil {
+		maxTok = *agent.MaxTokens
+	}
+
+	client.SetParams(temp, topP, maxTok)
+	return client
+}
+
+// buildSystemPrompt 构建完整系统提示词
+func buildSystemPrompt(systemPrompt, kbContext string) string {
+	var b strings.Builder
+	b.WriteString(systemPrompt)
+
+	if kbContext != "" {
+		b.WriteString("\n\n参考知识库内容：\n---\n")
+		b.WriteString(kbContext)
+		b.WriteString("\n---")
+	}
+
+	return b.String()
+}
+
+// Execute 非流式执行工作流，返回最终结果
+func (e *Engine) Execute(
+	workflowID int64,
+	userQuery string,
+	uid string,
+	messages []ChatMsg,
+) (string, error) {
+	var result strings.Builder
+	var lastErr error
+
+	for evt := range e.ExecuteStream(workflowID, userQuery, uid, messages) {
+		switch evt.Type {
+		case "chunk":
+			result.WriteString(evt.Content)
+		case "error":
+			lastErr = evt.Error
+			if result.Len() == 0 {
+				return "", evt.Error
+			}
+		case "done":
+			return result.String(), lastErr
+		}
+	}
+
+	return result.String(), lastErr
+}

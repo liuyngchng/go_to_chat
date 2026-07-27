@@ -19,11 +19,11 @@ const tokenTTLAPI = 2 * time.Hour
 
 // UserHandler 用户管理处理器
 type UserHandler struct {
-	store *store.SQLiteStore
+	store store.MetaStore
 }
 
 // NewUserHandler 创建用户管理处理器
-func NewUserHandler(s *store.SQLiteStore) *UserHandler {
+func NewUserHandler(s store.MetaStore) *UserHandler {
 	return &UserHandler{store: s}
 }
 
@@ -239,7 +239,7 @@ func (h *UserHandler) MyCallLogs(c *gin.Context) {
 // ============================================================
 
 // ApiCallLogMiddleware 记录 API 调用的中间件
-func ApiCallLogMiddleware(store *store.SQLiteStore) gin.HandlerFunc {
+func ApiCallLogMiddleware(store store.MetaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 仅记录携带 API token 的请求
 		auth := c.GetHeader("Authorization")

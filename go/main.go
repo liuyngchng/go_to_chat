@@ -40,17 +40,34 @@ func main() {
 
 	slog.Info("启动对话机器人...")
 
-	// 检查 cfg.db 是否存在，必须由部署人员从 cfg.db.template 手动复制
-	if _, err := os.Stat("cfg.db"); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "错误: cfg.db 不存在，请将 cfg.db.template 复制为 cfg.db 后重新启动\n")
-		os.Exit(1)
-	}
-
-	// 初始化 SQLite 元数据存储
-	metaStore, err := store.NewSQLiteStore("cfg.db")
-	if err != nil {
-		slog.Error("初始化数据库失败", "error", err)
-		os.Exit(1)
+	// 初始化元数据存储（根据 store.backend 配置选择后端）
+	var metaStore store.MetaStore
+	switch cfg.Store.Backend {
+	case "mysql":
+		if cfg.MySQL.DSN == "" {
+			fmt.Fprintf(os.Stderr, "错误: store.backend=mysql 但 mysql.dsn 为空\n")
+			os.Exit(1)
+		}
+		slog.Info("使用 MySQL 存储")
+		ms, err := store.NewMySQLStore(cfg.MySQL.DSN)
+		if err != nil {
+			slog.Error("初始化 MySQL 失败", "error", err)
+			os.Exit(1)
+		}
+		metaStore = ms
+	default:
+		// "sqlite" 或空
+		if _, err := os.Stat("cfg.db"); os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "错误: cfg.db 不存在，请将 cfg.db.template 复制为 cfg.db 后重新启动\n")
+			os.Exit(1)
+		}
+		slog.Info("使用 SQLite 存储")
+		ss, err := store.NewSQLiteStore("cfg.db")
+		if err != nil {
+			slog.Error("初始化 SQLite 失败", "error", err)
+			os.Exit(1)
+		}
+		metaStore = ss
 	}
 	defer metaStore.Close()
 
@@ -128,6 +145,12 @@ func main() {
 		// 当前用户信息
 		authAPI.GET("/me", h.Auth.Me)
 
+		// AI Agent 公开列表（聊天页下拉选择用）
+		authAPI.GET("/ai-agents/public", h.Agent.ListPublic)
+
+		// 工作流公开列表（聊天页下拉选择用）
+		authAPI.GET("/workflows", h.Workflow.ListPublic)
+
 		// 系统配置（读取）
 		authAPI.GET("/config", h.Config.GetConfig)
 
@@ -162,6 +185,19 @@ func main() {
 		adminAPI.POST("/users", h.User.CreateUser)
 		adminAPI.DELETE("/users/:name", h.User.DeleteUser)
 		adminAPI.PUT("/users/:name/reset-pwd", h.User.ResetUserPwd)
+
+		// AI Agent 管理
+		adminAPI.GET("/ai-agents", h.Agent.List)
+		adminAPI.POST("/ai-agents", h.Agent.Create)
+		adminAPI.GET("/ai-agents/:id", h.Agent.Get)
+		adminAPI.PUT("/ai-agents/:id", h.Agent.Update)
+		adminAPI.DELETE("/ai-agents/:id", h.Agent.Delete)
+
+		// 工作流管理
+		adminAPI.POST("/workflows", h.Workflow.Create)
+		adminAPI.GET("/workflows/:id", h.Workflow.Get)
+		adminAPI.PUT("/workflows/:id", h.Workflow.Update)
+		adminAPI.DELETE("/workflows/:id", h.Workflow.Delete)
 	}
 
 	// 用户自助 API（受 sys.api_auth 开关控制）

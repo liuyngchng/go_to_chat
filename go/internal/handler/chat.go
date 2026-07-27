@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"go_to_chat/internal/engine"
 	"go_to_chat/internal/kb"
 	"go_to_chat/internal/llm"
 	"go_to_chat/internal/model"
@@ -22,11 +23,12 @@ type ChatHandler struct {
 	kbMgr      *kb.Manager
 	sessionMgr *session.Manager
 	llmClient  *llm.Client
-	store      *store.SQLiteStore
+	store      store.MetaStore
+	engine     *engine.Engine
 }
 
 // NewChatHandler 创建聊天处理器
-func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore *store.SQLiteStore) *ChatHandler {
+func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore store.MetaStore) *ChatHandler {
 	llmClient := llm.New(
 		cfg.API.LLMAPIURI,
 		cfg.API.LLMAPIKey,
@@ -40,6 +42,7 @@ func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Ma
 		sessionMgr: sessionMgr,
 		llmClient:  llmClient,
 		store:      metaStore,
+		engine:     engine.NewEngine(cfg, kbMgr, metaStore),
 	}
 }
 
@@ -66,6 +69,12 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "不支持流式传输"})
+		return
+	}
+
+	// 如果指定了 workflow_id，走工作流引擎
+	if req.WorkflowID > 0 {
+		h.chatWithWorkflow(c, &req, uid, sessionID, flusher)
 		return
 	}
 
@@ -112,6 +121,57 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 			flusher.Flush()
 		}
 	default:
+	}
+
+	// 发送结束标记
+	fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+	flusher.Flush()
+
+	// 保存助手回复
+	responseText := fullResponse.String()
+	if responseText != "" {
+		h.sessionMgr.AddMessage(uid, sessionID, "assistant", responseText)
+	}
+}
+
+// chatWithWorkflow 通过工作流引擎处理聊天请求
+func (h *ChatHandler) chatWithWorkflow(c *gin.Context, req *model.ChatRequest, uid, sessionID string, flusher http.Flusher) {
+	// 获取历史
+	history := h.sessionMgr.GetHistory(uid, sessionID)
+	historyMsgs := make([]engine.ChatMsg, len(history))
+	for i, msg := range history {
+		historyMsgs[i] = engine.ChatMsg{Role: msg.Role, Content: msg.Content}
+	}
+
+	// 保存用户消息
+	h.sessionMgr.AddMessage(uid, sessionID, "user", req.Msg)
+
+	slog.Info("workflow-chat", "uid", uid, "session", sessionID, "workflow", req.WorkflowID, "query", req.Msg[:min(50, len(req.Msg))])
+
+	// 先发送初始事件
+	fmt.Fprintf(c.Writer, "data: \n\n")
+	flusher.Flush()
+
+	// 执行工作流
+	var fullResponse strings.Builder
+	eventCh := h.engine.ExecuteStream(req.WorkflowID, req.Msg, uid, historyMsgs)
+
+	for evt := range eventCh {
+		switch evt.Type {
+		case "progress":
+			fmt.Fprintf(c.Writer, "data: [步骤 %d/%d] %s\n\n", evt.Step, evt.Total, evt.Agent)
+			flusher.Flush()
+		case "chunk":
+			fullResponse.WriteString(evt.Content)
+			fmt.Fprintf(c.Writer, "data: %s\n\n", evt.Content)
+			flusher.Flush()
+		case "error":
+			slog.Error("workflow error", "error", evt.Content)
+			fmt.Fprintf(c.Writer, "data: [错误] %s\n\n", evt.Content)
+			flusher.Flush()
+		case "done":
+			// 正常结束
+		}
 	}
 
 	// 发送结束标记

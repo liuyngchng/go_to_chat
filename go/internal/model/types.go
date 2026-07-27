@@ -8,13 +8,27 @@ import "time"
 
 // Config 应用配置
 type Config struct {
-	Server ServerConfig `yaml:"server"`
-	Sys    SysConfig    `yaml:"sys"`
-	API    APIConfig    `yaml:"api"`
-	Milvus MilvusConfig `yaml:"milvus"`
-	KB     KBConfig     `yaml:"kb"`
-	LLM    LLMParams    `yaml:"llm"`
-	// Prompts 从 SQLite 数据库加载，不再从 YAML 读取
+	Server  ServerConfig  `yaml:"server"`
+	Sys     SysConfig     `yaml:"sys"`
+	API     APIConfig     `yaml:"api"`
+	Store   StoreConfig   `yaml:"store"`
+	Vector  VectorConfig  `yaml:"vector"`
+	Milvus  MilvusConfig  `yaml:"milvus"`
+	Qdrant  QdrantConfig  `yaml:"qdrant"`
+	MySQL   MySQLConfig   `yaml:"mysql"`
+	KB      KBConfig      `yaml:"kb"`
+	LLM     LLMParams     `yaml:"llm"`
+	// Prompts 从数据库加载，不再从 YAML 读取
+}
+
+// StoreConfig 元数据存储配置
+type StoreConfig struct {
+	Backend string `yaml:"backend"` // "sqlite" (默认) 或 "mysql"
+}
+
+// VectorConfig 向量存储配置
+type VectorConfig struct {
+	Backend string `yaml:"backend"` // "local" (默认), "milvus", "qdrant"
 }
 
 // KBConfig 知识库参数配置
@@ -61,6 +75,19 @@ type MilvusConfig struct {
 	Token string `yaml:"token"`
 }
 
+// QdrantConfig Qdrant 向量数据库配置
+type QdrantConfig struct {
+	Host  string `yaml:"host"`  // 例如 "localhost"
+	Port  int    `yaml:"port"`  // 例如 6334 (gRPC 端口)
+	APIKey string `yaml:"api_key"` // 可选，认证用
+	UseTLS bool   `yaml:"use_tls"` // 是否启用 TLS
+}
+
+// MySQLConfig MySQL 数据库配置
+type MySQLConfig struct {
+	DSN string `yaml:"dsn"` // 例如 "user:password@tcp(127.0.0.1:3306)/go_to_chat?charset=utf8mb4&parseTime=True&loc=Local"
+}
+
 // ============================================================
 // 知识库相关
 // ============================================================
@@ -101,10 +128,11 @@ type ChatMessage struct {
 
 // ChatRequest 聊天请求
 type ChatRequest struct {
-	Msg       string `form:"msg" json:"msg" binding:"required"`
-	UID       string `form:"uid" json:"uid"`
-	SessionID string `form:"session_id" json:"session_id"`
-	AppSource string `form:"app_source" json:"app_source"`
+	Msg        string `form:"msg" json:"msg" binding:"required"`
+	UID        string `form:"uid" json:"uid"`
+	SessionID  string `form:"session_id" json:"session_id"`
+	AppSource  string `form:"app_source" json:"app_source"`
+	WorkflowID int64  `form:"workflow_id" json:"workflow_id"` // 可选，0=默认模式
 }
 
 // LoginRequest 登录请求
@@ -271,4 +299,72 @@ type ConfigEntry struct {
 	Key         string `json:"key"`
 	Value       string `json:"value"`
 	Description string `json:"description"`
+}
+
+// ============================================================
+// 多智能体工作流相关
+// ============================================================
+
+// AgentDef 智能体定义
+type AgentDef struct {
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	SystemPrompt string    `json:"system_prompt"` // 该 Agent 的系统提示词
+	ModelName    string    `json:"model_name"`    // 可选，为空则用全局默认
+	Temperature  *float64  `json:"temperature"`   // nil 表示用全局默认
+	TopP         *float64  `json:"top_p"`
+	MaxTokens    *int      `json:"max_tokens"`
+	VdbIDs       string    `json:"vdb_ids"` // JSON 数组字符串, e.g. "[1,3,5]"
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// CreateAgentRequest 创建/更新智能体请求
+type CreateAgentRequest struct {
+	Name         string   `json:"name" binding:"required"`
+	Description  string   `json:"description"`
+	SystemPrompt string   `json:"system_prompt"`
+	ModelName    string   `json:"model_name"`
+	Temperature  *float64 `json:"temperature"`
+	TopP         *float64 `json:"top_p"`
+	MaxTokens    *int     `json:"max_tokens"`
+	VdbIDs       []int64  `json:"vdb_ids"` // 前端传数组
+}
+
+// AgentListItem 列表项（不含完整 prompt）
+type AgentListItem struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	ModelName   string    `json:"model_name"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// WorkflowNode 工作流中的一个步骤节点
+type WorkflowNode struct {
+	ID            string `json:"id"`            // 节点唯一 ID，前端生成
+	AgentID       int64  `json:"agent_id"`      // 引用哪个 Agent
+	AgentName     string `json:"agent_name"`    // 冗余展示用
+	InputTemplate string `json:"input_template"` // 输入模板，用 {{var}} 引用上游变量
+	OutputVar     string `json:"output_var"`    // 本节点输出变量名
+	OrderIndex    int    `json:"order_index"`   // 执行顺序，0-based
+	IsFinal       bool   `json:"is_final"`      // 是否最终输出节点
+}
+
+// WorkflowDef 工作流定义
+type WorkflowDef struct {
+	ID          int64          `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Nodes       []WorkflowNode `json:"nodes"` // 步骤列表，顺序 = 执行顺序
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+}
+
+// CreateWorkflowRequest 创建工作流请求
+type CreateWorkflowRequest struct {
+	Name        string         `json:"name" binding:"required"`
+	Description string         `json:"description"`
+	Nodes       []WorkflowNode `json:"nodes" binding:"required"`
 }

@@ -14,11 +14,11 @@ import (
 // ConfigHandler 系统配置 API 处理器
 type ConfigHandler struct {
 	cfg   *model.Config
-	store *store.SQLiteStore
+	store store.MetaStore
 }
 
 // NewConfigHandler 创建配置处理器
-func NewConfigHandler(cfg *model.Config, metaStore *store.SQLiteStore) *ConfigHandler {
+func NewConfigHandler(cfg *model.Config, metaStore store.MetaStore) *ConfigHandler {
 	return &ConfigHandler{
 		cfg:   cfg,
 		store: metaStore,

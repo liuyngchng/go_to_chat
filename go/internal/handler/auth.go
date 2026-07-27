@@ -22,18 +22,18 @@ import (
 // HMAC 签名密钥（生产环境应从配置读取）
 var tokenSecret = []byte("go_to_chat_secret_2026")
 
-// token 有效期 24 小时
-const tokenTTL = 24 * time.Hour
+// token 有效期 2 小时
+const tokenTTL = 2 * time.Hour
 
 // AuthHandler 认证处理器
 type AuthHandler struct {
 	cfg          *model.Config
-	store        *store.SQLiteStore
+	store        store.MetaStore
 	onlineAgents sync.Map // key: userName (string), value: loginTime (time.Time)
 }
 
 // NewAuthHandler 创建认证处理器
-func NewAuthHandler(cfg *model.Config, metaStore *store.SQLiteStore) *AuthHandler {
+func NewAuthHandler(cfg *model.Config, metaStore store.MetaStore) *AuthHandler {
 	return &AuthHandler{
 		cfg:   cfg,
 		store: metaStore,

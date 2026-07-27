@@ -233,15 +233,31 @@ func (s *MilvusStore) Close() error {
 // ============================================================
 
 // New 根据配置创建向量存储
-// milvusURI 为空或非 http 时返回 LocalStore，否则返回 MilvusStore
-func New(milvusURI, milvusToken, storePath string, vdbID int64) (VectorStore, error) {
-	if milvusURI != "" && (strings.HasPrefix(milvusURI, "http://") || strings.HasPrefix(milvusURI, "https://")) {
-		slog.Info("使用远程 Milvus", "uri", milvusURI)
-		return NewMilvusStore(milvusURI, milvusToken)
-	}
+// 根据 vector.backend 配置选择: "local" (默认), "milvus", "qdrant"
+func New(cfg *model.Config, vdbID int64) (VectorStore, error) {
+	switch cfg.Vector.Backend {
+	case "milvus":
+		if cfg.Milvus.URI == "" {
+			return nil, fmt.Errorf("Milvus URI 未配置")
+		}
+		slog.Info("使用远程 Milvus", "uri", cfg.Milvus.URI)
+		return NewMilvusStore(cfg.Milvus.URI, cfg.Milvus.Token)
 
-	slog.Info("使用本地向量存储", "path", storePath)
-	return NewLocalStore(storePath, vdbID)
+	case "qdrant":
+		if cfg.Qdrant.Host == "" {
+			return nil, fmt.Errorf("Qdrant Host 未配置")
+		}
+		if cfg.Qdrant.Port == 0 {
+			cfg.Qdrant.Port = 6334
+		}
+		slog.Info("使用 Qdrant 向量存储", "host", cfg.Qdrant.Host, "port", cfg.Qdrant.Port)
+		return NewQdrantStore(cfg.Qdrant.Host, cfg.Qdrant.Port, cfg.Qdrant.APIKey, cfg.Qdrant.UseTLS, vdbID)
+
+	default:
+		// "local" 或空
+		slog.Info("使用本地向量存储", "vdbID", vdbID)
+		return NewLocalStore(VectorsDB, vdbID)
+	}
 }
 
 // ============================================================

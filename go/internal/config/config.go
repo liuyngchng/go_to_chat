@@ -53,9 +53,9 @@ func Load(path string) (*model.Config, error) {
 	return &cfg, nil
 }
 
-// LoadRuntimeConfig 从 SQLite 加载运行时配置（sys、api），覆盖 YAML 中的初始值。
+// LoadRuntimeConfig 从数据库加载运行时配置（sys、api），覆盖 YAML 中的初始值。
 // 如果 sys_config 表为空，则用 cfg 中的 YAML 值作为种子写入数据库。
-func LoadRuntimeConfig(s *store.SQLiteStore, cfg *model.Config) error {
+func LoadRuntimeConfig(s store.MetaStore, cfg *model.Config) error {
 	sysAuth := "false"
 	if cfg.Sys.Auth {
 		sysAuth = "true"
@@ -78,7 +78,7 @@ func LoadRuntimeConfig(s *store.SQLiteStore, cfg *model.Config) error {
 }
 
 // ReloadRuntimeConfig 从数据库重新加载运行时配置（用于配置更新后刷新）
-func ReloadRuntimeConfig(s *store.SQLiteStore, cfg *model.Config) error {
+func ReloadRuntimeConfig(s store.MetaStore, cfg *model.Config) error {
 	configs, err := s.GetAllConfigs()
 	if err != nil {
 		return fmt.Errorf("读取系统配置失败: %w", err)
