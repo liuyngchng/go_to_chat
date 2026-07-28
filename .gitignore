@@ -16,6 +16,7 @@ java/dependency-reduced-pom.xml
 go/cfg.db
 go/*.db-shm
 go/*.db-wal
+go/*.exe
 java/cfg.db
 java/*.db-shm
 java/*.db-wal

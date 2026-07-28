@@ -4,7 +4,7 @@
 
 ## 项目结构
 
-```
+```sh
 go_to_chat/
 ├── main.go                         # 入口文件
 ├── cfg.yml                         # 运行配置（从 cfg.yml.template 复制）
@@ -185,15 +185,38 @@ CGO_ENABLED=0 go build -o go_to_chat .
 CGO_ENABLED=0 go build -ldflags="-s -w" -o go_to_chat .
 ```
 
+### 交叉编译
+
+支持任意平台的交叉编译，只需设置 `GOOS` 和 `GOARCH` 环境变量：
+
+```bash
+# Windows 64位
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o go_to_chat.exe .
+
+# Windows 32位
+GOOS=windows GOARCH=386 CGO_ENABLED=0 go build -ldflags="-s -w" -o go_to_chat.exe .
+
+# Linux ARM64（树莓派等）
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o go_to_chat .
+
+# macOS Intel
+GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o go_to_chat .
+
+# macOS Apple Silicon
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o go_to_chat .
+```
+
 ### 编译说明
 
 | 选项 | 说明 |
 |---|---|
 | `CGO_ENABLED=0` | 禁用 CGo，纯 Go 编译。SQLite 驱动使用 `modernc.org/sqlite`（纯 Go 实现），无需安装任何系统库 |
 | `-ldflags="-s -w"` | 去掉符号表和调试信息，大约瘦身 30% |
-| `-o go_to_chat` | 指定输出文件名 |
+| `-o go_to_chat` | 指定输出文件名（Windows 平台需要 `.exe` 后缀） |
+| `GOOS` | 目标操作系统：`linux` / `windows` / `darwin` |
+| `GOARCH` | 目标架构：`amd64` / `arm64` / `386` |
 
-> 项目使用 `modernc.org/sqlite` 纯 Go SQLite 驱动，编译产物为静态链接二进制，可直接在 `FROM scratch` 的 Docker 镜像中运行，也支持任意平台的交叉编译（如 `GOOS=linux GOARCH=arm64 go build`）。
+> 项目使用 `modernc.org/sqlite` 纯 Go SQLite 驱动，编译产物为静态链接二进制，可直接在 `FROM scratch` 的 Docker 镜像中运行，也支持任意平台的交叉编译。
 
 ## 运行
 
