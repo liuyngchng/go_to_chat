@@ -221,7 +221,7 @@ func main() {
 	}()
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
-	slog.Info("服务启动", "addr", addr)
+	slog.Info("服务启动", "addr", addr, "url", fmt.Sprintf("http://localhost%s", addr))
 	if err := r.Run(addr); err != nil {
 		slog.Error("服务启动失败", "error", err)
 		os.Exit(1)

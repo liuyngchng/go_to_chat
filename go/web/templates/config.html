@@ -120,6 +120,38 @@
             font-family: inherit;
         }
 
+        .cfg-pwd-wrap {
+            position: relative;
+            display: inline-block;
+            max-width: 560px;
+            width: 100%;
+        }
+
+        .cfg-pwd-wrap input {
+            width: 100%;
+            padding-right: 40px !important;
+        }
+
+        .cfg-pwd-toggle {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            padding: 6px;
+            font-size: 0.95rem;
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+        }
+
+        .cfg-pwd-toggle:hover {
+            color: #4b6cb7;
+        }
+
         .cfg-form-group input:focus,
         .cfg-form-group textarea:focus,
         .cfg-form-group select:focus {
@@ -450,7 +482,12 @@
                     </div>
                     <div class="cfg-form-group">
                         <label>API Key</label>
-                        <input type="password" id="llm_api_key" placeholder="sk-xxx">
+                        <div class="cfg-pwd-wrap">
+                            <input type="password" id="llm_api_key" placeholder="sk-xxx">
+                            <button type="button" class="cfg-pwd-toggle" onclick="togglePwd('llm_api_key', this)" title="显示/隐藏">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="cfg-form-group">
                         <label>模型名称</label>
@@ -467,7 +504,12 @@
                     </div>
                     <div class="cfg-form-group">
                         <label>API Key</label>
-                        <input type="password" id="embedding_api_key" placeholder="sk-xxx">
+                        <div class="cfg-pwd-wrap">
+                            <input type="password" id="embedding_api_key" placeholder="sk-xxx">
+                            <button type="button" class="cfg-pwd-toggle" onclick="togglePwd('embedding_api_key', this)" title="显示/隐藏">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="cfg-form-group">
                         <label>模型名称</label>
@@ -760,6 +802,21 @@
             options.headers = options.headers || {};
             options.headers['Authorization'] = 'Bearer ' + getToken();
             return fetch(url, options);
+        }
+
+        // ============================================================
+        // 密码可见性切换
+        // ============================================================
+        function togglePwd(inputId, btn) {
+            var input = document.getElementById(inputId);
+            var icon = btn.querySelector('i');
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.className = 'fas fa-eye-slash';
+            } else {
+                input.type = 'password';
+                icon.className = 'fas fa-eye';
+            }
         }
 
         // ============================================================

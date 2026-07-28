@@ -90,14 +90,19 @@ func (c *Client) EmbedSingle(text string) ([]float64, error) {
 func (c *Client) Dimension() (int, error) {
 	vec, err := c.EmbedSingle("dimension probe")
 	if err != nil {
+		slog.Error("embedding 维度探测失败", "model", c.ModelName, "baseURL", c.BaseURL, "error", err)
 		return 0, err
 	}
 	dim := len(vec)
-	slog.Info("embedding 模型探测", "model", c.ModelName, "dim", dim)
+	slog.Info("embedding 模型探测成功", "model", c.ModelName, "dim", dim)
 	return dim, nil
 }
 
 func (c *Client) embedBatch(texts []string) ([][]float64, error) {
+	if c.BaseURL == "" {
+		return nil, fmt.Errorf("Embedding API 地址未配置，请在系统管理页面中设置 embedding_api_uri")
+	}
+
 	reqBody := model.EmbeddingRequest{
 		Model: c.ModelName,
 		Input: texts,
@@ -125,7 +130,14 @@ func (c *Client) embedBatch(texts []string) ([][]float64, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("embedding API 返回错误 %d: %s", resp.StatusCode, string(body))
+		bodyStr := string(body)
+		slog.Error("embedding API 返回非 200",
+			"url", url,
+			"model", c.ModelName,
+			"status", resp.StatusCode,
+			"body", bodyStr,
+		)
+		return nil, fmt.Errorf("embedding API 返回错误 %d: %s", resp.StatusCode, bodyStr)
 	}
 
 	var result model.EmbeddingResponse

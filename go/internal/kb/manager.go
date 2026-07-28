@@ -28,29 +28,30 @@ const (
 
 // Manager 知识库管理器
 type Manager struct {
-	cfg       *model.Config
-	store     store.MetaStore
-	embClient *embedding.Client
-	stopCh    chan struct{}
-	mu        sync.RWMutex
-	stores    map[int64]vdb.VectorStore // key: vdbID -> store
+	cfg    *model.Config
+	store  store.MetaStore
+	stopCh chan struct{}
+	mu     sync.RWMutex
+	stores map[int64]vdb.VectorStore // key: vdbID -> store
 }
 
 // NewManager 创建知识库管理器
 func NewManager(cfg *model.Config, metaStore store.MetaStore) *Manager {
-	embClient := embedding.New(
-		cfg.API.EmbeddingAPIURI,
-		cfg.API.EmbeddingAPIKey,
-		cfg.API.EmbeddingModelName,
-	)
-
 	return &Manager{
-		cfg:       cfg,
-		store:     metaStore,
-		embClient: embClient,
-		stopCh:    make(chan struct{}),
-		stores:    make(map[int64]vdb.VectorStore),
+		cfg:    cfg,
+		store:  metaStore,
+		stopCh: make(chan struct{}),
+		stores: make(map[int64]vdb.VectorStore),
 	}
+}
+
+// getEmbClient 从当前配置创建 embedding 客户端（共享连接池，开销极低）
+func (m *Manager) getEmbClient() *embedding.Client {
+	return embedding.New(
+		m.cfg.API.EmbeddingAPIURI,
+		m.cfg.API.EmbeddingAPIKey,
+		m.cfg.API.EmbeddingModelName,
+	)
 }
 
 // ============================================================
@@ -79,8 +80,14 @@ func (m *Manager) CreateKB(name, uid string, isPublic bool) (int64, error) {
 	}
 
 	// 探测 embedding 维度并初始化 collection
-	dim, err := m.embClient.Dimension()
+	dim, err := m.getEmbClient().Dimension()
 	if err != nil {
+		slog.Error("创建知识库失败: 探测 embedding 维度",
+			"kbName", name,
+			"embedURI", m.cfg.API.EmbeddingAPIURI,
+			"embedModel", m.cfg.API.EmbeddingModelName,
+			"error", err,
+		)
 		return 0, fmt.Errorf("探测 embedding 维度失败: %w", err)
 	}
 	if err := vs.EnsureCollection(dim); err != nil {
@@ -241,7 +248,7 @@ func (m *Manager) SearchInKB(query string, vdbID int64, uid string, topK int, sc
 	}
 
 	// 计算 query 向量
-	queryVec, err := m.embClient.EmbedSingle(query)
+	queryVec, err := m.getEmbClient().EmbedSingle(query)
 	if err != nil {
 		return "", fmt.Errorf("query embedding 失败: %w", err)
 	}
@@ -374,8 +381,14 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 		return fmt.Errorf("获取向量存储失败: %w", err)
 	}
 
-	dim, err := m.embClient.Dimension()
+	dim, err := m.getEmbClient().Dimension()
 	if err != nil {
+		slog.Error("处理文件失败: 探测 embedding 维度",
+			"file", finfo.Name,
+			"embedURI", m.cfg.API.EmbeddingAPIURI,
+			"embedModel", m.cfg.API.EmbeddingModelName,
+			"error", err,
+		)
 		return fmt.Errorf("探测 embedding 维度失败: %w", err)
 	}
 	if err := vs.EnsureCollection(dim); err != nil {
@@ -403,7 +416,7 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 		}
 
 		// 批量 embedding
-		embeddings, err := m.embClient.Embed(batchTexts)
+		embeddings, err := m.getEmbClient().Embed(batchTexts)
 		if err != nil {
 			bar.Finish()
 			return fmt.Errorf("embedding 失败 (batch %d-%d): %w", i, end, err)
