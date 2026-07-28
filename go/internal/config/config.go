@@ -49,6 +49,9 @@ func Load(path string) (*model.Config, error) {
 	if cfg.LLM.MaxTokens == 0 {
 		cfg.LLM.MaxTokens = 2048
 	}
+	if cfg.Faq.MatchThreshold == 0 {
+		cfg.Faq.MatchThreshold = 0.85
+	}
 
 	return &cfg, nil
 }
@@ -130,6 +133,23 @@ func applyConfig(configs map[string]string, cfg *model.Config) {
 	if v, ok := configs["kb.score_threshold"]; ok && v != "" {
 		cfg.KB.ScoreThreshold, _ = strconv.ParseFloat(v, 64)
 	}
+	if v, ok := configs["kb.rerank_enabled"]; ok && v != "" {
+		cfg.KB.RerankEnabled = v == "true"
+	}
+	if v, ok := configs["kb.rerank_retrieve_n"]; ok && v != "" {
+		cfg.KB.RerankRetrieveN, _ = strconv.Atoi(v)
+	}
+
+	// Rerank API 配置
+	if v, ok := configs["api.rerank_api_uri"]; ok && v != "" {
+		cfg.API.RerankAPIURI = v
+	}
+	if v, ok := configs["api.rerank_api_key"]; ok && v != "" {
+		cfg.API.RerankAPIKey = v
+	}
+	if v, ok := configs["api.rerank_model_name"]; ok && v != "" {
+		cfg.API.RerankModelName = v
+	}
 
 	// LLM 参数
 	if v, ok := configs["llm.temperature"]; ok && v != "" {
@@ -140,5 +160,10 @@ func applyConfig(configs map[string]string, cfg *model.Config) {
 	}
 	if v, ok := configs["llm.max_tokens"]; ok && v != "" {
 		cfg.LLM.MaxTokens, _ = strconv.Atoi(v)
+	}
+
+	// FAQ 参数
+	if v, ok := configs["faq.match_threshold"]; ok && v != "" {
+		cfg.Faq.MatchThreshold, _ = strconv.ParseFloat(v, 64)
 	}
 }

@@ -108,6 +108,24 @@ CREATE TABLE IF NOT EXISTS workflow_def (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- FAQ 条目表
+CREATE TABLE IF NOT EXISTS faq_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    answer TEXT NOT NULL,
+    source_file TEXT NOT NULL DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- FAQ 问题表（一对多，每个问法独立向量化）
+CREATE TABLE IF NOT EXISTS faq_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    embedding TEXT NOT NULL DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (entry_id) REFERENCES faq_entries(id) ON DELETE CASCADE
+);
+
 -- ============================================================
 -- 索引
 -- ============================================================
@@ -117,3 +135,4 @@ CREATE INDEX IF NOT EXISTS idx_sys_config_key ON sys_config(config_key);
 CREATE INDEX IF NOT EXISTS idx_users_name ON users(user_name);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_name);
 CREATE INDEX IF NOT EXISTS idx_api_call_log_user ON api_call_log(user_name);
+CREATE INDEX IF NOT EXISTS idx_faq_questions_entry ON faq_questions(entry_id);

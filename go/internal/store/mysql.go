@@ -157,6 +157,25 @@ func (s *MySQLStore) migrate() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+		-- FAQ 条目表
+		CREATE TABLE IF NOT EXISTS faq_entries (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			answer TEXT NOT NULL,
+			source_file VARCHAR(512) NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+		-- FAQ 问题表
+		CREATE TABLE IF NOT EXISTS faq_questions (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			entry_id BIGINT NOT NULL,
+			question TEXT NOT NULL,
+			embedding TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_faq_questions_entry (entry_id),
+			FOREIGN KEY (entry_id) REFERENCES faq_entries(id) ON DELETE CASCADE
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 		`
 	_, err := s.db.Exec(schema)
 	if err != nil {
@@ -857,10 +876,13 @@ func (s *MySQLStore) SeedDefaultConfigs(sysName, sysAuth string) error {
 		{"kb.chunk_size", "300", "文本分片大小（字符数）"},
 		{"kb.chunk_overlap", "80", "文本分片重叠大小（字符数）"},
 		{"kb.top_k", "3", "检索返回条数"},
-		{"kb.score_threshold", "0.1", "检索相似度阈值"},
+		{"kb.rerank_enabled", "false", "是否启用 Rerank 重排序"},
+			{"kb.rerank_retrieve_n", "15", "Rerank 预检索条数"},
+			{"kb.score_threshold", "0.1", "检索相似度阈值"},
 		{"llm.temperature", "0.7", "LLM 温度参数 (0-2)"},
 		{"llm.top_p", "0.9", "LLM Top-P 采样参数 (0-1)"},
 		{"llm.max_tokens", "2048", "LLM 最大生成 Token 数"},
+			{"faq.match_threshold", "0.85", "FAQ 匹配阈值 (0~1)"},
 	}
 
 	for _, e := range entries {
@@ -869,6 +891,160 @@ func (s *MySQLStore) SeedDefaultConfigs(sysName, sysAuth string) error {
 		}
 	}
 	return nil
+}
+
+// ============================================================
+// FAQ 条目管理
+// ============================================================
+
+// CreateFaqEntry 创建 FAQ 条目
+func (s *MySQLStore) CreateFaqEntry(answer, sourceFile string) (int64, error) {
+	result, err := s.db.Exec(
+		"INSERT INTO faq_entries (answer, source_file) VALUES (?, ?)",
+		answer, sourceFile,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("创建 FAQ 条目失败: %w", err)
+	}
+	return result.LastInsertId()
+}
+
+// CreateFaqQuestion 创建 FAQ 问题记录
+func (s *MySQLStore) CreateFaqQuestion(entryID int64, question, embeddingJSON string) (int64, error) {
+	result, err := s.db.Exec(
+		"INSERT INTO faq_questions (entry_id, question, embedding) VALUES (?, ?, ?)",
+		entryID, question, embeddingJSON,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("创建 FAQ 问题失败: %w", err)
+	}
+	return result.LastInsertId()
+}
+
+// GetFaqEntries 获取所有 FAQ 条目
+func (s *MySQLStore) GetFaqEntries() ([]model.FaqEntry, error) {
+	rows, err := s.db.Query(
+		"SELECT id, answer, source_file, created_at FROM faq_entries ORDER BY id",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []model.FaqEntry
+	for rows.Next() {
+		var e model.FaqEntry
+		if err := rows.Scan(&e.ID, &e.Answer, &e.SourceFile, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	for i := range entries {
+		questions, err := s.GetFaqQuestionsByEntryID(entries[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		entries[i].Questions = questions
+	}
+	return entries, rows.Err()
+}
+
+// GetFaqQuestionsByEntryID 获取某条目的所有问题
+func (s *MySQLStore) GetFaqQuestionsByEntryID(entryID int64) ([]model.FaqQuestion, error) {
+	rows, err := s.db.Query(
+		"SELECT id, entry_id, question, created_at FROM faq_questions WHERE entry_id = ? ORDER BY id",
+		entryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var questions []model.FaqQuestion
+	for rows.Next() {
+		var q model.FaqQuestion
+		if err := rows.Scan(&q.ID, &q.EntryID, &q.Question, &q.CreatedAt); err != nil {
+			return nil, err
+		}
+		questions = append(questions, q)
+	}
+	if questions == nil {
+		questions = []model.FaqQuestion{}
+	}
+	return questions, rows.Err()
+}
+
+// GetAllFaqQuestionsWithEmbedding 获取所有 FAQ 问题及其向量
+func (s *MySQLStore) GetAllFaqQuestionsWithEmbedding() ([]model.FaqQuestionWithEmbedding, error) {
+	rows, err := s.db.Query(
+		"SELECT id, entry_id, question, embedding FROM faq_questions",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var questions []model.FaqQuestionWithEmbedding
+	for rows.Next() {
+		var q model.FaqQuestionWithEmbedding
+		var embJSON string
+		if err := rows.Scan(&q.ID, &q.EntryID, &q.Question, &embJSON); err != nil {
+			return nil, err
+		}
+		if embJSON != "" {
+			if err := json.Unmarshal([]byte(embJSON), &q.Embedding); err != nil {
+				continue
+			}
+		}
+		questions = append(questions, q)
+	}
+	return questions, rows.Err()
+}
+
+// DeleteFaqEntry 删除 FAQ 条目及其问题
+func (s *MySQLStore) DeleteFaqEntry(id int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM faq_questions WHERE entry_id = ?", id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM faq_entries WHERE id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// UpdateFaqEntry 更新 FAQ 条目答案
+func (s *MySQLStore) UpdateFaqEntry(id int64, answer string) error {
+	_, err := s.db.Exec("UPDATE faq_entries SET answer = ? WHERE id = ?", answer, id)
+	return err
+}
+
+// DeleteFaqQuestionsByEntryID 删除某条目的所有问题
+func (s *MySQLStore) DeleteFaqQuestionsByEntryID(entryID int64) error {
+	_, err := s.db.Exec("DELETE FROM faq_questions WHERE entry_id = ?", entryID)
+	return err
+}
+
+// ClearAllFaq 清空所有 FAQ
+func (s *MySQLStore) ClearAllFaq() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM faq_questions"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM faq_entries"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ============================================================

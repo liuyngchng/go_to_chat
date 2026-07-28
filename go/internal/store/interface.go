@@ -87,6 +87,20 @@ type MetaStore interface {
 	DeleteWorkflow(id int64) error
 
 	// ============================================================
+	// FAQ 条目管理
+	// ============================================================
+
+	CreateFaqEntry(answer, sourceFile string) (int64, error)
+	CreateFaqQuestion(entryID int64, question, embeddingJSON string) (int64, error)
+	GetFaqEntries() ([]model.FaqEntry, error)
+	GetFaqQuestionsByEntryID(entryID int64) ([]model.FaqQuestion, error)
+	GetAllFaqQuestionsWithEmbedding() ([]model.FaqQuestionWithEmbedding, error)
+	DeleteFaqEntry(id int64) error
+	UpdateFaqEntry(id int64, answer string) error
+	DeleteFaqQuestionsByEntryID(entryID int64) error
+	ClearAllFaq() error
+
+	// ============================================================
 	// 系统配置 (sys_config)
 	// ============================================================
 

@@ -25,10 +25,11 @@ type ChatHandler struct {
 	llmClient  *llm.Client
 	store      store.MetaStore
 	engine     *engine.Engine
+	faqHandler *FaqHandler
 }
 
 // NewChatHandler 创建聊天处理器
-func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore store.MetaStore) *ChatHandler {
+func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore store.MetaStore, faqHandler *FaqHandler) *ChatHandler {
 	llmClient := llm.New(
 		cfg.API.LLMAPIURI,
 		cfg.API.LLMAPIKey,
@@ -43,6 +44,7 @@ func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Ma
 		llmClient:  llmClient,
 		store:      metaStore,
 		engine:     engine.NewEngine(cfg, kbMgr, metaStore),
+		faqHandler: faqHandler,
 	}
 }
 
@@ -81,6 +83,24 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	// 获取历史
 	history := h.sessionMgr.GetHistory(uid, sessionID)
 	historyStr := session.FormatHistory(history)
+
+	// 先尝试 FAQ 匹配（命中则直接返回，不走 LLM）
+	faqThreshold := h.cfg.Faq.MatchThreshold
+	if h.faqHandler != nil && h.faqHandler.GetFaqCount() > 0 {
+		faqAnswer, faqScore, err := h.faqHandler.MatchFaq(req.Msg, faqThreshold)
+		if err == nil && faqAnswer != "" {
+			slog.Info("faq-matched", "uid", uid, "query", req.Msg[:min(50, len(req.Msg))], "score", faqScore)
+			h.sessionMgr.AddMessage(uid, sessionID, "user", req.Msg)
+			fmt.Fprintf(c.Writer, "data: \n\n")
+			flusher.Flush()
+			fmt.Fprintf(c.Writer, "data: %s\n\n", faqAnswer)
+			flusher.Flush()
+			fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+			flusher.Flush()
+			h.sessionMgr.AddMessage(uid, sessionID, "assistant", faqAnswer)
+			return
+		}
+	}
 
 	// 获取知识库上下文
 	curDate := time.Now().Format("2006-01-02")
