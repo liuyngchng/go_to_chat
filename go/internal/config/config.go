@@ -14,6 +14,11 @@ import (
 // Load 从 YAML 文件加载配置（server + milvus 部分）
 // sys、api 配置将在后续从 SQLite 数据库加载
 func Load(path string) (*model.Config, error) {
+	// 检查配置文件是否存在，必须由部署人员从 cfg.yml.template 手动复制
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, fmt.Errorf("%s 不存在，请将 %s.template 复制为 %s 后重新启动", path, path, path)
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("读取配置文件 %s 失败: %w", path, err)
