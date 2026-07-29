@@ -1,6 +1,6 @@
 package com.rd.robot;
 
-import com.rd.robot.client.EmbeddingClient;
+import com.rd.robot.client.ClientFactory;
 import com.rd.robot.config.AppConfig;
 import com.rd.robot.config.RuntimeConfig;
 import com.rd.robot.knowledge.KnowledgeBaseManager;
@@ -43,15 +43,11 @@ public class Bootstrap {
         // 5. Initialize session manager
         SessionManager sessionMgr = new SessionManager();
 
-        // 6. Initialize Embedding client
-        EmbeddingClient embClient = new EmbeddingClient(
-                cfg.getApi().getEmbeddingApiUri(),
-                cfg.getApi().getEmbeddingApiKey(),
-                cfg.getApi().getEmbeddingModelName()
-        );
+        // 6. Initialize client factory (lazy, reads config from DB)
+        ClientFactory clientFactory = new ClientFactory(metaStore);
 
         // 7. Initialize knowledge base manager
-        KnowledgeBaseManager kbManager = new KnowledgeBaseManager(cfg, metaStore, embClient);
+        KnowledgeBaseManager kbManager = new KnowledgeBaseManager(cfg, metaStore, clientFactory);
 
         // 8. Start background file processing worker
         kbManager.startFileWorker();
@@ -59,13 +55,13 @@ public class Bootstrap {
         // 9. Create controllers
         PageController pageController = new PageController(cfg);
         AuthController authController = new AuthController(metaStore);
-        ChatController chatController = new ChatController(cfg, kbManager, sessionMgr, metaStore);
+        ChatController chatController = new ChatController(cfg, kbManager, sessionMgr, metaStore, clientFactory);
         VdbController vdbController = new VdbController(cfg, kbManager, metaStore);
-        ConfigController configController = new ConfigController(cfg, metaStore);
+        ConfigController configController = new ConfigController(cfg, metaStore, clientFactory);
         UserController userController = new UserController(metaStore);
         AgentController agentController = new AgentController(metaStore);
         WorkflowController workflowController = new WorkflowController(metaStore);
-        FaqController faqController = new FaqController(metaStore, embClient);
+        FaqController faqController = new FaqController(metaStore, clientFactory);
 
         // 10. Create router and register routes
         Router router = new Router();

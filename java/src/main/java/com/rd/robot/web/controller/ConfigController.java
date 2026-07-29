@@ -1,6 +1,7 @@
 package com.rd.robot.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rd.robot.client.ClientFactory;
 import com.rd.robot.config.RuntimeConfig;
 import com.rd.robot.model.Config;
 import com.rd.robot.repository.MetaStore;
@@ -23,10 +24,12 @@ public class ConfigController {
 
     private final Config cfg;
     private final MetaStore metaStore;
+    private final ClientFactory clientFactory;
 
-    public ConfigController(Config cfg, MetaStore metaStore) {
+    public ConfigController(Config cfg, MetaStore metaStore, ClientFactory clientFactory) {
         this.cfg = cfg;
         this.metaStore = metaStore;
+        this.clientFactory = clientFactory;
     }
 
     /**
@@ -36,8 +39,6 @@ public class ConfigController {
         try {
             Map<String, Object> resp = Map.of("data", Map.of(
                     "sys", Map.of(
-                            "name", cfg.getSys().getName(),
-                            "auth", cfg.getSys().isAuth() ? "true" : "false",
                             "api_auth", cfg.getSys().isApiAuth() ? "true" : "false"
                     ),
                     "api", Map.of(
@@ -96,8 +97,6 @@ public class ConfigController {
             Map<String, Object> faq = (Map<String, Object>) req.get("faq");
 
             if (sys != null) {
-                if (sys.get("name") != null) metaStore.setConfig("sys.name", (String) sys.get("name"), "系统名称");
-                if (sys.get("auth") != null) metaStore.setConfig("sys.auth", (String) sys.get("auth"), "是否启用认证");
                 if (sys.get("api_auth") != null) metaStore.setConfig("sys.api_auth", (String) sys.get("api_auth"), "是否启用接口认证");
             }
 
@@ -136,8 +135,9 @@ public class ConfigController {
                 setConfigIfPresentDouble(faq, "match_threshold", "faq.match_threshold");
             }
 
-            // Reload runtime config
+            // Reload runtime config and invalidate client cache
             RuntimeConfig.reload(metaStore, cfg);
+            clientFactory.invalidate();
 
             HttpServer.sendJson(ctx, 200, "{\"status\":\"ok\"}");
 

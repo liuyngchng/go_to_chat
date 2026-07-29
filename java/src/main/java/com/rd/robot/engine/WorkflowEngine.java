@@ -2,6 +2,7 @@ package com.rd.robot.engine;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rd.robot.client.ClientFactory;
 import com.rd.robot.client.LlmClient;
 import com.rd.robot.knowledge.KnowledgeBaseManager;
 import com.rd.robot.model.*;
@@ -29,22 +30,14 @@ public class WorkflowEngine {
     private final Config cfg;
     private final KnowledgeBaseManager kbMgr;
     private final MetaStore metaStore;
-    private final LlmClient baseLlm;
+    private final ClientFactory clientFactory;
 
-    public WorkflowEngine(Config cfg, KnowledgeBaseManager kbMgr, MetaStore metaStore) {
+    public WorkflowEngine(Config cfg, KnowledgeBaseManager kbMgr, MetaStore metaStore,
+                          ClientFactory clientFactory) {
         this.cfg = cfg;
         this.kbMgr = kbMgr;
         this.metaStore = metaStore;
-        this.baseLlm = new LlmClient(
-                cfg.getApi().getLlmApiUri(),
-                cfg.getApi().getLlmApiKey(),
-                cfg.getApi().getLlmModelName()
-        );
-        this.baseLlm.setParams(
-                cfg.getLlm().getTemperature(),
-                cfg.getLlm().getTopP(),
-                cfg.getLlm().getMaxTokens()
-        );
+        this.clientFactory = clientFactory;
     }
 
     /**
@@ -79,7 +72,7 @@ public class WorkflowEngine {
 
                 // 3. Intent classification (if workflow has a classifier)
                 if (workflow.getClassifier() != null) {
-                    String intent = IntentClassifier.classify(workflow.getClassifier(), userQuery, baseLlm);
+                    String intent = IntentClassifier.classify(workflow.getClassifier(), userQuery, clientFactory.getLlmClient());
                     String outputVar = workflow.getClassifier().getOutputVar();
                     if (outputVar == null || outputVar.isEmpty()) {
                         outputVar = "intent";
@@ -213,25 +206,17 @@ public class WorkflowEngine {
     // ============================================================
 
     private LlmClient getLlmClient(AgentDef agent) {
-        String modelName = cfg.getApi().getLlmModelName();
-        String apiUri = cfg.getApi().getLlmApiUri();
-        String apiKey = cfg.getApi().getLlmApiKey();
+        String modelName = agent.getModelName() != null && !agent.getModelName().isEmpty()
+                ? agent.getModelName() : null;
+        LlmClient client = clientFactory.createLlmClient(modelName);
 
-        if (agent.getModelName() != null && !agent.getModelName().isEmpty()) {
-            modelName = agent.getModelName();
+        // Agent-specific overrides
+        if (agent.getTemperature() != null || agent.getTopP() != null || agent.getMaxTokens() != null) {
+            double temp = agent.getTemperature() != null ? agent.getTemperature() : 0.7;
+            double topP = agent.getTopP() != null ? agent.getTopP() : 0.9;
+            int maxTok = agent.getMaxTokens() != null ? agent.getMaxTokens() : 2048;
+            client.setParams(temp, topP, maxTok);
         }
-
-        LlmClient client = new LlmClient(apiUri, apiKey, modelName);
-
-        double temp = cfg.getLlm().getTemperature();
-        double topP = cfg.getLlm().getTopP();
-        int maxTok = cfg.getLlm().getMaxTokens();
-
-        if (agent.getTemperature() != null) temp = agent.getTemperature();
-        if (agent.getTopP() != null) topP = agent.getTopP();
-        if (agent.getMaxTokens() != null) maxTok = agent.getMaxTokens();
-
-        client.setParams(temp, topP, maxTok);
         return client;
     }
 

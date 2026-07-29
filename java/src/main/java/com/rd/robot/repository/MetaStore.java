@@ -100,7 +100,7 @@ public interface MetaStore {
     String getConfig(String key);
     void setConfig(String key, String value, String description);
     Map<String, String> getAllConfigs();
-    void seedDefaultConfigs(String sysName, String sysAuth);
+    void seedDefaultConfigs();
 
     // ============================================================
     // Lifecycle

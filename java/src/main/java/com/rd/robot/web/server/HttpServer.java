@@ -212,6 +212,14 @@ public class HttpServer {
     // Response helpers
     // ============================================================
 
+    public static void sendRedirect(ChannelHandlerContext ctx, String location) {
+        FullHttpResponse response = new DefaultFullHttpResponse(
+                HttpVersion.HTTP_1_1, HttpResponseStatus.FOUND);
+        response.headers().set(HttpHeaderNames.LOCATION, location);
+        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, 0);
+        ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+    }
+
     public static void sendJson(ChannelHandlerContext ctx, int statusCode, String json) {
         FullHttpResponse response = new DefaultFullHttpResponse(
                 HttpVersion.HTTP_1_1,

@@ -1,7 +1,6 @@
 package com.rd.robot.knowledge;
 
-import com.rd.robot.client.EmbeddingClient;
-import com.rd.robot.client.RerankClient;
+import com.rd.robot.client.ClientFactory;
 import com.rd.robot.model.*;
 import com.rd.robot.repository.MetaStore;
 import com.rd.robot.vector.VectorStore;
@@ -29,29 +28,16 @@ public class KnowledgeBaseManager {
 
     private final Config cfg;
     private final MetaStore store;
-    private final EmbeddingClient embClient;
-    private final RerankClient rerankClient;
+    private final ClientFactory clientFactory;
     private final ScheduledExecutorService scheduler;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final Map<Long, VectorStore> stores = new HashMap<>();
     private volatile boolean running = true;
 
-    public KnowledgeBaseManager(Config cfg, MetaStore store, EmbeddingClient embClient) {
+    public KnowledgeBaseManager(Config cfg, MetaStore store, ClientFactory clientFactory) {
         this.cfg = cfg;
         this.store = store;
-        this.embClient = embClient;
-
-        // Initialize rerank client if configured
-        if (cfg.getApi().getRerankApiUri() != null && !cfg.getApi().getRerankApiUri().isEmpty()
-                && cfg.getApi().getRerankModelName() != null && !cfg.getApi().getRerankModelName().isEmpty()) {
-            this.rerankClient = new RerankClient(
-                    cfg.getApi().getRerankApiUri(),
-                    cfg.getApi().getRerankApiKey(),
-                    cfg.getApi().getRerankModelName()
-            );
-        } else {
-            this.rerankClient = null;
-        }
+        this.clientFactory = clientFactory;
 
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "file-worker");
@@ -72,7 +58,7 @@ public class KnowledgeBaseManager {
         long id = store.createVdb(name, uid, isPublic);
         VectorStore vs = getOrCreateStore(id);
 
-        int dim = embClient.dimension();
+        int dim = clientFactory.getEmbeddingClient().dimension();
         vs.ensureCollection(dim);
 
         return id;
@@ -186,11 +172,11 @@ public class KnowledgeBaseManager {
     public String searchInKB(String query, long vdbId, String uid, int topK, double scoreThreshold) throws Exception {
         VectorStore vs = getOrCreateStore(vdbId);
 
-        double[] queryVec = embClient.embedSingle(query);
+        double[] queryVec = clientFactory.getEmbeddingClient().embedSingle(query);
 
         // Determine retrieval count: if rerank enabled, retrieve more first
         int retrieveN = topK;
-        boolean useRerank = cfg.getKb().isRerankEnabled() && rerankClient != null;
+        boolean useRerank = cfg.getKb().isRerankEnabled() && clientFactory.getRerankClient() != null;
         if (useRerank) {
             retrieveN = cfg.getKb().getRerankRetrieveN();
             if (retrieveN <= topK) {
@@ -208,7 +194,7 @@ public class KnowledgeBaseManager {
                     .collect(java.util.stream.Collectors.toList());
 
             try {
-                var rerankResults = rerankClient.rerank(query, docs, topK);
+                var rerankResults = clientFactory.getRerankClient().rerank(query, docs, topK);
                 // Reorder by rerank results
                 List<SearchResult> reordered = new ArrayList<>();
                 for (var rr : rerankResults) {
@@ -314,7 +300,7 @@ public class KnowledgeBaseManager {
 
         // Initialize vector store
         VectorStore vs = getOrCreateStore(finfo.getVdbId());
-        int dim = embClient.dimension();
+        int dim = clientFactory.getEmbeddingClient().dimension();
         vs.ensureCollection(dim);
 
         // Batch vectorization
@@ -330,7 +316,7 @@ public class KnowledgeBaseManager {
             List<String> batch = chunks.subList(i, end);
 
             // Batch embedding
-            List<double[]> embeddings = embClient.embed(batch);
+            List<double[]> embeddings = clientFactory.getEmbeddingClient().embed(batch);
 
             // Build records
             List<VectorRecord> records = new ArrayList<>();

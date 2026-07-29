@@ -27,8 +27,7 @@ public class RuntimeConfig {
      * Seeds default configs if the DB table is empty.
      */
     public static void load(MetaStore metaStore, Config cfg) {
-        String sysAuth = cfg.getSys().isAuth() ? "true" : "false";
-        metaStore.seedDefaultConfigs(cfg.getSys().getName(), sysAuth);
+        metaStore.seedDefaultConfigs();
 
         Map<String, String> configs = metaStore.getAllConfigs();
         apply(configs, cfg);
@@ -45,12 +44,7 @@ public class RuntimeConfig {
     }
 
     private static void apply(Map<String, String> configs, Config cfg) {
-        if (configs.containsKey("sys.name")) {
-            cfg.getSys().setName(configs.get("sys.name"));
-        }
-        if (configs.containsKey("sys.auth")) {
-            cfg.getSys().setAuth("true".equals(configs.get("sys.auth")));
-        }
+        // sys.name / sys.auth come from cfg.yml only (bootstrap config)
         if (configs.containsKey("sys.api_auth")) {
             cfg.getSys().setApiAuth("true".equals(configs.get("sys.api_auth")));
         }

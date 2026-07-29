@@ -945,15 +945,13 @@ public class MysqlMetaStore implements MetaStore {
     }
 
     @Override
-    public void seedDefaultConfigs(String sysName, String sysAuth) {
+    public void seedDefaultConfigs() {
         int count = queryInt("SELECT COUNT(*) FROM sys_config");
         if (count > 0) return;
 
         for (var entry : SqliteMetaStore.DEFAULT_CONFIGS) {
             setConfig(entry.key(), entry.value(), entry.desc());
         }
-        setConfig("sys.name", sysName, "系统名称");
-        setConfig("sys.auth", sysAuth, "是否启用认证 (true/false)");
     }
 
     @Override

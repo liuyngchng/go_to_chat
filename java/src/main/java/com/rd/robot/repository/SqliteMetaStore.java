@@ -1017,16 +1017,13 @@ public class SqliteMetaStore implements MetaStore {
     }
 
     @Override
-    public void seedDefaultConfigs(String sysName, String sysAuth) {
+    public void seedDefaultConfigs() {
         int count = queryInt("SELECT COUNT(*) FROM sys_config");
         if (count > 0) return;
 
         for (var entry : DEFAULT_CONFIGS) {
             setConfig(entry.key, entry.value, entry.desc);
         }
-        // Override with the actual name and auth
-        setConfig("sys.name", sysName, "系统名称");
-        setConfig("sys.auth", sysAuth, "是否启用认证 (true/false)");
     }
 
     // ============================================================
@@ -1245,8 +1242,6 @@ public class SqliteMetaStore implements MetaStore {
         请用亲切、专业的中文回答：""";
 
     static final DefaultConfig[] DEFAULT_CONFIGS = {
-        new DefaultConfig("sys.name", "对话机器人", "系统名称"),
-        new DefaultConfig("sys.auth", "false", "是否启用认证 (true/false)"),
         new DefaultConfig("sys.api_auth", "true", "是否启用接口认证 (true/false)"),
         new DefaultConfig("prompt.chat_msg", DEFAULT_CHAT_PROMPT, "聊天提示词模板"),
         new DefaultConfig("kb.chunk_size", "300", "文本分片大小（字符数）"),

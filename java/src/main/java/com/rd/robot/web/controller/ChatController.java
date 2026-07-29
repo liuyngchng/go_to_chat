@@ -1,6 +1,7 @@
 package com.rd.robot.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rd.robot.client.ClientFactory;
 import com.rd.robot.client.LlmClient;
 import com.rd.robot.engine.TemplateResolver;
 import com.rd.robot.engine.WorkflowEngine;
@@ -33,26 +34,22 @@ public class ChatController {
     private final Config cfg;
     private final KnowledgeBaseManager kbMgr;
     private final SessionManager sessionMgr;
-    private final LlmClient llmClient;
+    private final ClientFactory clientFactory;
     private final MetaStore metaStore;
     private final WorkflowEngine workflowEngine;
 
-    public ChatController(Config cfg, KnowledgeBaseManager kbMgr, SessionManager sessionMgr, MetaStore metaStore) {
+    public ChatController(Config cfg, KnowledgeBaseManager kbMgr, SessionManager sessionMgr,
+                          MetaStore metaStore, ClientFactory clientFactory) {
         this.cfg = cfg;
         this.kbMgr = kbMgr;
         this.sessionMgr = sessionMgr;
         this.metaStore = metaStore;
-        this.llmClient = new LlmClient(
-                cfg.getApi().getLlmApiUri(),
-                cfg.getApi().getLlmApiKey(),
-                cfg.getApi().getLlmModelName()
-        );
-        this.llmClient.setParams(
-                cfg.getLlm().getTemperature(),
-                cfg.getLlm().getTopP(),
-                cfg.getLlm().getMaxTokens()
-        );
-        this.workflowEngine = new WorkflowEngine(cfg, kbMgr, metaStore);
+        this.clientFactory = clientFactory;
+        this.workflowEngine = new WorkflowEngine(cfg, kbMgr, metaStore, clientFactory);
+    }
+
+    private LlmClient getLlmClient() {
+        return clientFactory.getLlmClient();
     }
 
     /**
@@ -142,7 +139,7 @@ public class ChatController {
             // Stream LLM response
             StringBuilder fullResponse = new StringBuilder();
 
-            llmClient.chatStream(systemPrompt, "",
+            getLlmClient().chatStream(systemPrompt, "",
                     chunk -> {
                         fullResponse.append(chunk);
                         ctx.writeAndFlush(new DefaultHttpContent(

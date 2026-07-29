@@ -9,19 +9,6 @@ sys:
   name: 对话机器人
   auth: false
 
-# LLM / Embedding / Rerank API 配置请在系统管理页面中设置，无需写入此文件
-# 如需在此文件中配置，可添加 api 段（与 DB 中的配置共存，DB 优先）：
-# api:
-#   llm_api_uri: https://api.deepseek.com/v1
-#   llm_api_key: sk-xxx
-#   llm_model_name: deepseek-chat
-#   embedding_api_uri: https://api.openai.com/v1
-#   embedding_api_key: sk-xxx
-#   embedding_model_name: text-embedding-3-small
-#   rerank_api_uri: ""
-#   rerank_api_key: ""
-#   rerank_model_name: ""
-
 # ============================================================
 # 元数据存储配置
 # ============================================================

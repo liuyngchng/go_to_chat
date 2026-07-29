@@ -1,7 +1,7 @@
 package com.rd.robot.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rd.robot.client.EmbeddingClient;
+import com.rd.robot.client.ClientFactory;
 import com.rd.robot.model.*;
 import com.rd.robot.repository.MetaStore;
 import com.rd.robot.web.server.HttpServer;
@@ -47,11 +47,11 @@ public class FaqController {
             """;
 
     private final MetaStore metaStore;
-    private final EmbeddingClient embClient;
+    private final ClientFactory clientFactory;
 
-    public FaqController(MetaStore metaStore, EmbeddingClient embClient) {
+    public FaqController(MetaStore metaStore, ClientFactory clientFactory) {
         this.metaStore = metaStore;
-        this.embClient = embClient;
+        this.clientFactory = clientFactory;
     }
 
     /**
@@ -180,7 +180,7 @@ public class FaqController {
                 q = q.trim();
                 if (q.isEmpty()) continue;
                 try {
-                    double[] emb = embClient.embedSingle(q);
+                    double[] emb = clientFactory.getEmbeddingClient().embedSingle(q);
                     String embJson = MAPPER.writeValueAsString(Arrays.stream(emb).boxed().toList());
                     metaStore.createFaqQuestion(id, q, embJson);
                 } catch (Exception e) {
@@ -234,7 +234,7 @@ public class FaqController {
             q = q.trim();
             if (q.isEmpty()) continue;
             try {
-                double[] emb = embClient.embedSingle(q);
+                double[] emb = clientFactory.getEmbeddingClient().embedSingle(q);
                 String embJson = MAPPER.writeValueAsString(Arrays.stream(emb).boxed().toList());
                 metaStore.createFaqQuestion(entryId, q, embJson);
             } catch (Exception e) {

@@ -26,6 +26,7 @@ public class PageController {
     }
 
     public void index(ChannelHandlerContext ctx, FullHttpRequest request) {
+        if (requireAuth(ctx, request)) return;
         try {
             String uid = getUid(request);
             String token = getToken(request);
@@ -43,6 +44,7 @@ public class PageController {
     }
 
     public void vdbIndex(ChannelHandlerContext ctx, FullHttpRequest request) {
+        if (requireAuth(ctx, request)) return;
         try {
             String uid = getUid(request);
             String token = getToken(request);
@@ -60,6 +62,7 @@ public class PageController {
     }
 
     public void configIndex(ChannelHandlerContext ctx, FullHttpRequest request) {
+        if (requireAuth(ctx, request)) return;
         try {
             String uid = getUid(request);
             String token = getToken(request);
@@ -77,6 +80,7 @@ public class PageController {
     }
 
     public void userApiIndex(ChannelHandlerContext ctx, FullHttpRequest request) {
+        if (requireAuth(ctx, request)) return;
         try {
             String uid = getUid(request);
             String token = getToken(request);
@@ -130,5 +134,23 @@ public class PageController {
         if (token == null) return User.ROLE_NORMAL;
         User user = TokenProvider.parseToken(token);
         return user != null ? user.getRole() : User.ROLE_NORMAL;
+    }
+
+    /**
+     * Check page auth. Returns true if redirected to login (caller should return).
+     */
+    private boolean requireAuth(ChannelHandlerContext ctx, FullHttpRequest request) {
+        if (!cfg.getSys().isAuth()) return false;
+        String token = getToken(request);
+        if (token == null) {
+            HttpServer.sendRedirect(ctx, "/login");
+            return true;
+        }
+        User user = TokenProvider.parseToken(token);
+        if (user == null) {
+            HttpServer.sendRedirect(ctx, "/login");
+            return true;
+        }
+        return false;
     }
 }
