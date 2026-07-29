@@ -18,7 +18,13 @@ type Config struct {
 	MySQL   MySQLConfig   `yaml:"mysql"`
 	KB      KBConfig      `yaml:"kb"`
 	LLM     LLMParams     `yaml:"llm"`
+	Faq     FaqConfig     `yaml:"faq"`
 	// Prompts 从数据库加载，不再从 YAML 读取
+}
+
+// FaqConfig FAQ 匹配参数
+type FaqConfig struct {
+	MatchThreshold float64 `json:"match_threshold"`
 }
 
 // StoreConfig 元数据存储配置
@@ -33,10 +39,12 @@ type VectorConfig struct {
 
 // KBConfig 知识库参数配置
 type KBConfig struct {
-	ChunkSize      int     `json:"chunk_size"`
-	ChunkOverlap   int     `json:"chunk_overlap"`
-	TopK           int     `json:"top_k"`
-	ScoreThreshold float64 `json:"score_threshold"`
+	ChunkSize       int     `json:"chunk_size"`
+	ChunkOverlap    int     `json:"chunk_overlap"`
+	TopK            int     `json:"top_k"`
+	ScoreThreshold  float64 `json:"score_threshold"`
+	RerankEnabled   bool    `json:"rerank_enabled"`
+	RerankRetrieveN int     `json:"rerank_retrieve_n"` // 预检索条数，rerank 后再取 TopK
 }
 
 // LLMParams LLM 模型参数配置
@@ -61,12 +69,15 @@ type SysConfig struct {
 
 // APIConfig API 配置
 type APIConfig struct {
-	LLMAPIURI         string `yaml:"llm_api_uri"`
-	LLMAPIKey         string `yaml:"llm_api_key"`
+	LLMAPIURI          string `yaml:"llm_api_uri"`
+	LLMAPIKey          string `yaml:"llm_api_key"`
 	LLMModelName       string `yaml:"llm_model_name"`
-	EmbeddingAPIURI   string `yaml:"embedding_api_uri"`
-	EmbeddingAPIKey   string `yaml:"embedding_api_key"`
+	EmbeddingAPIURI    string `yaml:"embedding_api_uri"`
+	EmbeddingAPIKey    string `yaml:"embedding_api_key"`
 	EmbeddingModelName string `yaml:"embedding_model_name"`
+	RerankAPIURI       string `yaml:"rerank_api_uri"`
+	RerankAPIKey       string `yaml:"rerank_api_key"`
+	RerankModelName    string `yaml:"rerank_model_name"`
 }
 
 // MilvusConfig Milvus 配置
@@ -202,6 +213,25 @@ type EmbeddingResponse struct {
 	Data []struct {
 		Embedding []float64 `json:"embedding"`
 	} `json:"data"`
+}
+
+// RerankRequest 重排序请求 (OpenAI/Cohere 兼容格式)
+type RerankRequest struct {
+	Model     string   `json:"model"`
+	Query     string   `json:"query"`
+	Documents []string `json:"documents"`
+	TopN      int      `json:"top_n,omitempty"`
+}
+
+// RerankResponse 重排序响应
+type RerankResponse struct {
+	Results []RerankResult `json:"results"`
+}
+
+// RerankResult 单条重排序结果
+type RerankResult struct {
+	Index          int     `json:"index"`
+	RelevanceScore float64 `json:"relevance_score"`
 }
 
 // ============================================================
@@ -367,4 +397,45 @@ type CreateWorkflowRequest struct {
 	Name        string         `json:"name" binding:"required"`
 	Description string         `json:"description"`
 	Nodes       []WorkflowNode `json:"nodes" binding:"required"`
+}
+
+// ============================================================
+// FAQ 相关
+// ============================================================
+
+// FaqEntry FAQ 条目（一个答案 + 多个问法）
+type FaqEntry struct {
+	ID         int64        `json:"id"`
+	Questions  []FaqQuestion `json:"questions"`
+	Answer     string       `json:"answer"`
+	SourceFile string       `json:"source_file"`
+	CreatedAt  time.Time    `json:"created_at"`
+}
+
+// FaqQuestion FAQ 问题（带向量）
+type FaqQuestion struct {
+	ID        int64     `json:"id"`
+	EntryID   int64     `json:"entry_id"`
+	Question  string    `json:"question"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// FaqQuestionWithEmbedding 带向量的 FAQ 问题（内部使用）
+type FaqQuestionWithEmbedding struct {
+	ID        int64     `json:"id"`
+	EntryID   int64     `json:"entry_id"`
+	Question  string    `json:"question"`
+	Embedding []float64 `json:"embedding"`
+}
+
+// CreateFaqRequest 创建 FAQ 条目请求
+type CreateFaqRequest struct {
+	Questions []string `json:"questions" binding:"required"` // 至少一个问法
+	Answer    string   `json:"answer" binding:"required"`
+}
+
+// UpdateFaqRequest 更新 FAQ 条目请求
+type UpdateFaqRequest struct {
+	Questions []string `json:"questions" binding:"required"`
+	Answer    string   `json:"answer" binding:"required"`
 }

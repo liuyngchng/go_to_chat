@@ -410,6 +410,10 @@
                 <div class="cfg-tab" data-tab="workflow">
                     <i class="fas fa-project-diagram"></i> 工作流编排
                 </div>
+                <div class="cfg-sidebar-divider"></div>
+                <div class="cfg-tab" data-tab="faq">
+                    <i class="fas fa-question-circle"></i> FAQ 管理
+                </div>
             </nav>
 
             <!-- 右侧内容区 -->
@@ -456,6 +460,26 @@
                             <label>相似度阈值 <span class="cfg-hint">(0~1)</span></label>
                             <input type="number" id="kb_score_threshold" min="0" max="1" step="0.01" placeholder="0.1">
                         </div>
+                    </div>
+
+                    <h3 style="font-size:1rem;color:#4b6cb7;margin:28px 0 16px;padding-bottom:8px;border-bottom:1px solid #eef1f6;">
+                        <i class="fas fa-sort-amount-down"></i> Rerank 重排序参数
+                    </h3>
+
+                    <div class="cfg-form-group">
+                        <label>启用 Rerank</label>
+                        <div class="cfg-toggle-row">
+                            <label class="cfg-toggle">
+                                <input type="checkbox" id="kb_rerank_enabled">
+                                <span class="cfg-toggle-slider"></span>
+                            </label>
+                            <span class="cfg-toggle-label" id="rerankLabel">未启用</span>
+                        </div>
+                    </div>
+
+                    <div class="cfg-form-group">
+                        <label>预检索条数 <span class="cfg-hint">(Rerank 前从向量库检索的条数，需大于返回条数)</span></label>
+                        <input type="number" id="kb_rerank_retrieve_n" min="3" max="50" placeholder="15" style="max-width:200px;">
                     </div>
 
                     <div class="cfg-actions">
@@ -514,6 +538,23 @@
                     <div class="cfg-form-group">
                         <label>模型名称</label>
                         <input type="text" id="embedding_model_name" placeholder="text-embedding-3-small">
+                    </div>
+
+                    <h3 style="font-size:1rem;color:#4b6cb7;margin:28px 0 16px;padding-bottom:8px;border-bottom:1px solid #eef1f6;">
+                        <i class="fas fa-sort-amount-down"></i> Rerank 重排序模型
+                    </h3>
+
+                    <div class="cfg-form-group">
+                        <label>API 地址 <span class="cfg-hint">(OpenAI/Cohere 兼容接口)</span></label>
+                        <input type="text" id="rerank_api_uri" placeholder="https://api.example.com/v1">
+                    </div>
+                    <div class="cfg-form-group">
+                        <label>API Key</label>
+                        <input type="password" id="rerank_api_key" placeholder="sk-xxx">
+                    </div>
+                    <div class="cfg-form-group">
+                        <label>模型名称</label>
+                        <input type="text" id="rerank_model_name" placeholder="bge-reranker-v2-m3">
                     </div>
 
                     <h3 style="font-size:1rem;color:#4b6cb7;margin:28px 0 16px;padding-bottom:8px;border-bottom:1px solid #eef1f6;">
@@ -769,6 +810,86 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- FAQ 管理 -->
+                <div class="cfg-section" id="section-faq">
+                    <h2><i class="fas fa-question-circle"></i> FAQ 管理</h2>
+
+                    <!-- 工具栏卡片 -->
+                    <div style="background:#fafbfc;border:1px solid #e0e3e8;border-radius:10px;padding:20px 24px;margin-bottom:24px;">
+                        <!-- 第一行：阈值配置 -->
+                        <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
+                            <div class="cfg-form-group" style="margin-bottom:0;flex:1;min-width:220px;max-width:320px;">
+                                <label style="margin-bottom:6px;">匹配阈值 <span class="cfg-hint">(0~1，越高越严格)</span></label>
+                                <input type="number" id="faq_match_threshold" min="0" max="1" step="0.01" placeholder="0.85"
+                                       style="width:100%;padding:10px 14px;border:2px solid #e0e3e8;border-radius:8px;font-size:0.9rem;">
+                            </div>
+                            <button class="cfg-btn cfg-btn-save" style="padding:10px 22px;" onclick="saveFaqConfig()">
+                                <i class="fas fa-check"></i> 保存阈值
+                            </button>
+                        </div>
+
+                        <div style="margin:16px 0;border-top:1px solid #e8eaed;"></div>
+
+                        <!-- 第二行：操作按钮 -->
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                            <label class="cfg-btn cfg-btn-save" style="cursor:pointer;margin:0;">
+                                <i class="fas fa-upload"></i> 上传 FAQ 文件
+                                <input type="file" id="faqFileInput" accept=".txt,.md" style="display:none;" onchange="uploadFaqFile()">
+                            </label>
+                            <a href="javascript:void(0)" class="cfg-btn cfg-btn-reset" style="text-decoration:none;" onclick="downloadFaqTemplate()">
+                                <i class="fas fa-download"></i> 下载 FAQ 模板
+                            </a>
+                            <button class="cfg-btn cfg-btn-save" onclick="showFaqModal()">
+                                <i class="fas fa-plus"></i> 新增 FAQ
+                            </button>
+                            <button class="cfg-btn cfg-btn-reset" onclick="clearAllFaq()" style="color:#c62828;">
+                                <i class="fas fa-trash"></i> 清空全部
+                            </button>
+                            <span style="color:#999;font-size:0.82rem;margin-left:4px;">
+                                支持 .txt / .md 格式，每行 <code>Q: 问题</code> / <code>A: 答案</code>
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- FAQ 列表 -->
+                    <div id="faqList">
+                        <div style="color:#999;text-align:center;padding:20px;">加载中...</div>
+                    </div>
+
+                    <!-- FAQ 编辑弹窗 -->
+                    <div id="faqModal" class="pwd-modal-overlay" style="display:none;">
+                        <div class="pwd-modal" style="max-width:600px;width:90%;">
+                            <h3 id="faqModalTitle"><i class="fas fa-question-circle"></i> 新增 FAQ</h3>
+                            <form id="faqForm">
+                                <input type="hidden" id="faqEditId" value="0">
+
+                                <div class="pwd-field">
+                                    <label>问法列表 <span style="color:#999;font-weight:400;">(多个不同问法，指向同一答案)</span></label>
+                                    <div id="faqQuestionsContainer">
+                                        <div class="faq-question-row" style="display:flex;gap:8px;margin-bottom:8px;">
+                                            <input type="text" class="faq-question-input" placeholder="问题..." style="flex:1;">
+                                            <button type="button" class="cfg-btn cfg-btn-reset" style="padding:6px 10px;font-size:0.8rem;color:#c62828;" onclick="removeFaqQuestionRow(this)">×</button>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="cfg-btn cfg-btn-reset" style="padding:4px 12px;font-size:0.8rem;margin-top:4px;" onclick="addFaqQuestionRow()">
+                                        <i class="fas fa-plus"></i> 添加问法
+                                    </button>
+                                </div>
+
+                                <div class="pwd-field">
+                                    <label>答案 <span style="color:#e53935;">*</span></label>
+                                    <textarea id="faqAnswer" rows="4" style="width:100%;font-family:inherit;"></textarea>
+                                </div>
+
+                                <div class="pwd-actions">
+                                    <button type="button" class="cfg-btn cfg-btn-reset" onclick="hideFaqModal()">取消</button>
+                                    <button type="submit" class="cfg-btn cfg-btn-save">保存</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -838,6 +959,9 @@
         document.getElementById('sys_api_auth').addEventListener('change', function() {
             document.getElementById('apiAuthLabel').textContent = this.checked ? '已启用' : '未启用';
         });
+        document.getElementById('kb_rerank_enabled').addEventListener('change', function() {
+            document.getElementById('rerankLabel').textContent = this.checked ? '已启用' : '未启用';
+        });
 
         // ============================================================
         // 加载配置
@@ -864,6 +988,9 @@
                 document.getElementById('embedding_api_uri').value = data.api.embedding_api_uri || '';
                 document.getElementById('embedding_api_key').value = data.api.embedding_api_key || '';
                 document.getElementById('embedding_model_name').value = data.api.embedding_model_name || '';
+                document.getElementById('rerank_api_uri').value = data.api.rerank_api_uri || '';
+                document.getElementById('rerank_api_key').value = data.api.rerank_api_key || '';
+                document.getElementById('rerank_model_name').value = data.api.rerank_model_name || '';
 
                 // 提示词
                 document.getElementById('chat_msg').value = data.prompt.chat_msg || '';
@@ -873,11 +1000,17 @@
                 document.getElementById('kb_chunk_overlap').value = data.kb.chunk_overlap || 80;
                 document.getElementById('kb_top_k').value = data.kb.top_k || 3;
                 document.getElementById('kb_score_threshold').value = data.kb.score_threshold || 0.1;
+                document.getElementById('kb_rerank_enabled').checked = data.kb.rerank_enabled === true;
+                document.getElementById('rerankLabel').textContent = data.kb.rerank_enabled === true ? '已启用' : '未启用';
+                document.getElementById('kb_rerank_retrieve_n').value = data.kb.rerank_retrieve_n || 15;
 
                 // LLM 参数
                 document.getElementById('llm_temperature').value = data.llm.temperature || 0.7;
                 document.getElementById('llm_top_p').value = data.llm.top_p || 0.9;
                 document.getElementById('llm_max_tokens').value = data.llm.max_tokens || 2048;
+
+                // FAQ 参数
+                document.getElementById('faq_match_threshold').value = (data.faq && data.faq.match_threshold) || 0.85;
             } catch (err) {
                 showToast('加载配置失败: ' + err.message, 'error');
             }
@@ -895,10 +1028,13 @@
                     llm_model_name: document.getElementById('llm_model_name').value.trim(),
                     embedding_api_uri: document.getElementById('embedding_api_uri').value.trim(),
                     embedding_api_key: document.getElementById('embedding_api_key').value.trim(),
-                    embedding_model_name: document.getElementById('embedding_model_name').value.trim()
+                    embedding_model_name: document.getElementById('embedding_model_name').value.trim(),
+                    rerank_api_uri: document.getElementById('rerank_api_uri').value.trim(),
+                    rerank_api_key: document.getElementById('rerank_api_key').value.trim(),
+                    rerank_model_name: document.getElementById('rerank_model_name').value.trim()
                 },
                 prompt: { chat_msg: '' },
-                kb: { chunk_size: 0, chunk_overlap: 0, top_k: 0, score_threshold: 0 },
+                kb: { chunk_size: 0, chunk_overlap: 0, top_k: 0, score_threshold: 0, rerank_enabled: false, rerank_retrieve_n: 0 },
                 llm: {
                     temperature: parseFloat(document.getElementById('llm_temperature').value) || 0,
                     top_p: parseFloat(document.getElementById('llm_top_p').value) || 0,
@@ -931,14 +1067,17 @@
                 sys: { name: '', auth: '' },
                 api: {
                     llm_api_uri: '', llm_api_key: '', llm_model_name: '',
-                    embedding_api_uri: '', embedding_api_key: '', embedding_model_name: ''
+                    embedding_api_uri: '', embedding_api_key: '', embedding_model_name: '',
+                    rerank_api_uri: '', rerank_api_key: '', rerank_model_name: ''
                 },
                 prompt: { chat_msg: '' },
                 kb: {
                     chunk_size: parseInt(document.getElementById('kb_chunk_size').value) || 0,
                     chunk_overlap: parseInt(document.getElementById('kb_chunk_overlap').value) || 0,
                     top_k: parseInt(document.getElementById('kb_top_k').value) || 0,
-                    score_threshold: parseFloat(document.getElementById('kb_score_threshold').value) || 0
+                    score_threshold: parseFloat(document.getElementById('kb_score_threshold').value) || 0,
+                    rerank_enabled: document.getElementById('kb_rerank_enabled').checked,
+                    rerank_retrieve_n: parseInt(document.getElementById('kb_rerank_retrieve_n').value) || 0
                 },
                 llm: { temperature: 0, top_p: 0, max_tokens: 0 }
             };
@@ -972,12 +1111,13 @@
                 },
                 api: {
                     llm_api_uri: '', llm_api_key: '', llm_model_name: '',
-                    embedding_api_uri: '', embedding_api_key: '', embedding_model_name: ''
+                    embedding_api_uri: '', embedding_api_key: '', embedding_model_name: '',
+                    rerank_api_uri: '', rerank_api_key: '', rerank_model_name: ''
                 },
                 prompt: {
                     chat_msg: document.getElementById('chat_msg').value
                 },
-                kb: { chunk_size: 0, chunk_overlap: 0, top_k: 0, score_threshold: 0 },
+                kb: { chunk_size: 0, chunk_overlap: 0, top_k: 0, score_threshold: 0, rerank_enabled: false, rerank_retrieve_n: 0 },
                 llm: { temperature: 0, top_p: 0, max_tokens: 0 }
             };
 
@@ -1521,11 +1661,265 @@
 
         function escHtml2(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+        // ============================================================
+        // FAQ 管理
+        // ============================================================
+
+        async function loadFaqList() {
+            try {
+                const resp = await authFetch('/api/faq');
+                const json = await resp.json();
+                const entries = json.data || [];
+                if (entries.length === 0) {
+                    document.getElementById('faqList').innerHTML =
+                        '<div style="color:#999;text-align:center;padding:40px;">暂无 FAQ 条目，请上传文件或手动添加</div>';
+                    return;
+                }
+                let h = '';
+                entries.forEach(function(e, idx) {
+                    const questions = (e.questions || []).map(function(q) {
+                        return '<span style="display:inline-block;background:#e3f2fd;color:#1976d2;padding:2px 8px;border-radius:4px;margin:2px 4px 2px 0;font-size:0.82rem;">' + escHtml2(q.question) + '</span>';
+                    }).join('');
+                    h += '<div style="background:#fafbfc;border:1px solid #e0e3e8;border-radius:8px;padding:16px;margin-bottom:12px;">' +
+                        '<div style="display:flex;justify-content:space-between;align-items:flex-start;">' +
+                            '<div style="flex:1;">' +
+                                '<div style="margin-bottom:8px;">' + questions + '</div>' +
+                                '<div style="color:#333;font-size:0.9rem;line-height:1.5;white-space:pre-wrap;">' + escHtml2(e.answer) + '</div>' +
+                                (e.source_file ? '<div style="color:#999;font-size:0.75rem;margin-top:8px;">来源: ' + escHtml2(e.source_file) + '</div>' : '') +
+                            '</div>' +
+                            '<div style="display:flex;gap:6px;margin-left:12px;flex-shrink:0;">' +
+                                '<button class="cfg-btn cfg-btn-reset" style="padding:4px 12px;font-size:0.8rem;" onclick="editFaq(' + e.id + ')"><i class="fas fa-edit"></i></button>' +
+                                '<button class="cfg-btn cfg-btn-reset" style="padding:4px 12px;font-size:0.8rem;color:#c62828;" onclick="delFaq(' + e.id + ')"><i class="fas fa-trash"></i></button>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+                });
+                document.getElementById('faqList').innerHTML = h;
+            } catch(e) {
+                document.getElementById('faqList').innerHTML = '<div style="color:#c62828;">加载失败: ' + e.message + '</div>';
+            }
+        }
+
+        // 上传 FAQ 文件
+        function uploadFaqFile() {
+            const input = document.getElementById('faqFileInput');
+            const file = input.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            authFetch('/api/faq/upload', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        showToast('已导入 ' + data.created + '/' + data.total + ' 条 FAQ', 'success');
+                        loadFaqList();
+                    } else {
+                        showToast('导入失败: ' + (data.error || '未知错误'), 'error');
+                    }
+                })
+                .catch(err => showToast('网络错误: ' + err.message, 'error'));
+
+            input.value = '';
+        }
+
+        // FAQ 弹窗
+        function showFaqModal() {
+            document.getElementById('faqEditId').value = '0';
+            document.getElementById('faqModalTitle').innerHTML = '<i class="fas fa-question-circle"></i> 新增 FAQ';
+            document.getElementById('faqAnswer').value = '';
+            // 重置问题列表为一行
+            document.getElementById('faqQuestionsContainer').innerHTML =
+                '<div class="faq-question-row" style="display:flex;gap:8px;margin-bottom:8px;">' +
+                    '<input type="text" class="faq-question-input" placeholder="问题..." style="flex:1;">' +
+                    '<button type="button" class="cfg-btn cfg-btn-reset" style="padding:6px 10px;font-size:0.8rem;color:#c62828;" onclick="removeFaqQuestionRow(this)">×</button>' +
+                '</div>';
+            document.getElementById('faqModal').style.display = 'flex';
+        }
+
+        function hideFaqModal() {
+            document.getElementById('faqModal').style.display = 'none';
+        }
+
+        function addFaqQuestionRow() {
+            const row = document.createElement('div');
+            row.className = 'faq-question-row';
+            row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;';
+            row.innerHTML = '<input type="text" class="faq-question-input" placeholder="问题..." style="flex:1;">' +
+                '<button type="button" class="cfg-btn cfg-btn-reset" style="padding:6px 10px;font-size:0.8rem;color:#c62828;" onclick="removeFaqQuestionRow(this)">×</button>';
+            document.getElementById('faqQuestionsContainer').appendChild(row);
+        }
+
+        function removeFaqQuestionRow(btn) {
+            const container = document.getElementById('faqQuestionsContainer');
+            if (container.children.length <= 1) return; // 至少保留一行
+            btn.parentElement.remove();
+        }
+
+        async function editFaq(id) {
+            try {
+                const resp = await authFetch('/api/faq');
+                const json = await resp.json();
+                const entries = json.data || [];
+                const entry = entries.find(e => e.id === id);
+                if (!entry) { showToast('FAQ 条目不存在', 'error'); return; }
+
+                document.getElementById('faqEditId').value = entry.id;
+                document.getElementById('faqModalTitle').innerHTML = '<i class="fas fa-edit"></i> 编辑 FAQ';
+                document.getElementById('faqAnswer').value = entry.answer || '';
+
+                // 填充问题列表
+                let qRows = '';
+                (entry.questions || []).forEach(function(q) {
+                    qRows += '<div class="faq-question-row" style="display:flex;gap:8px;margin-bottom:8px;">' +
+                        '<input type="text" class="faq-question-input" value="' + escHtml2(q.question) + '" style="flex:1;">' +
+                        '<button type="button" class="cfg-btn cfg-btn-reset" style="padding:6px 10px;font-size:0.8rem;color:#c62828;" onclick="removeFaqQuestionRow(this)">×</button>' +
+                    '</div>';
+                });
+                document.getElementById('faqQuestionsContainer').innerHTML = qRows;
+                document.getElementById('faqModal').style.display = 'flex';
+            } catch(e) {
+                showToast('加载 FAQ 失败: ' + e.message, 'error');
+            }
+        }
+
+        async function delFaq(id) {
+            if (!confirm('确定删除该 FAQ 条目？')) return;
+            try {
+                const resp = await authFetch('/api/faq/' + id, { method: 'DELETE' });
+                const data = await resp.json();
+                if (data.status === 'ok') {
+                    showToast('FAQ 已删除', 'success');
+                    loadFaqList();
+                } else {
+                    showToast('删除失败: ' + (data.error || ''), 'error');
+                }
+            } catch(e) {
+                showToast('网络错误: ' + e.message, 'error');
+            }
+        }
+
+        async function clearAllFaq() {
+            if (!confirm('确定清空所有 FAQ？此操作不可恢复。')) return;
+            try {
+                const resp = await authFetch('/api/faq', { method: 'DELETE' });
+                const data = await resp.json();
+                if (data.status === 'ok') {
+                    showToast('FAQ 已全部清空', 'success');
+                    loadFaqList();
+                } else {
+                    showToast('清空失败: ' + (data.error || ''), 'error');
+                }
+            } catch(e) {
+                showToast('网络错误: ' + e.message, 'error');
+            }
+        }
+
+        // FAQ 模板下载（带认证）
+        async function downloadFaqTemplate() {
+            try {
+                const resp = await authFetch('/api/faq/template');
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showToast('下载失败: ' + (err.error || '未知错误'), 'error');
+                    return;
+                }
+                const blob = await resp.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'faq_template.txt';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            } catch (err) {
+                showToast('下载失败: ' + err.message, 'error');
+            }
+        }
+
+        // FAQ 阈值保存
+        async function saveFaqConfig() {
+            const payload = {
+                sys: { name: '', auth: '' },
+                api: {
+                    llm_api_uri: '', llm_api_key: '', llm_model_name: '',
+                    embedding_api_uri: '', embedding_api_key: '', embedding_model_name: '',
+                    rerank_api_uri: '', rerank_api_key: '', rerank_model_name: ''
+                },
+                prompt: { chat_msg: '' },
+                kb: { chunk_size: 0, chunk_overlap: 0, top_k: 0, score_threshold: 0, rerank_enabled: false, rerank_retrieve_n: 0 },
+                llm: { temperature: 0, top_p: 0, max_tokens: 0 },
+                faq: {
+                    match_threshold: parseFloat(document.getElementById('faq_match_threshold').value) || 0
+                }
+            };
+
+            try {
+                const resp = await authFetch('/api/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const json = await resp.json();
+                if (json.status === 'ok') {
+                    showToast('FAQ 匹配阈值已保存', 'success');
+                } else {
+                    showToast('保存失败: ' + (json.error || '未知错误'), 'error');
+                }
+            } catch (err) {
+                showToast('保存失败: ' + err.message, 'error');
+            }
+        }
+
+        // FAQ 表单提交
+        document.getElementById('faqForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const id = parseInt(document.getElementById('faqEditId').value) || 0;
+            const answer = document.getElementById('faqAnswer').value.trim();
+            if (!answer) { alert('答案不能为空'); return; }
+
+            const questionInputs = document.querySelectorAll('#faqQuestionsContainer .faq-question-input');
+            const questions = [];
+            questionInputs.forEach(function(inp) {
+                const v = inp.value.trim();
+                if (v) questions.push(v);
+            });
+            if (questions.length === 0) { alert('至少需要一个问法'); return; }
+
+            const payload = { questions: questions, answer: answer };
+            const url = id > 0 ? '/api/faq/' + id : '/api/faq';
+            const method = id > 0 ? 'PUT' : 'POST';
+
+            try {
+                const resp = await authFetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (data.status === 'ok') {
+                    hideFaqModal();
+                    loadFaqList();
+                    showToast(id > 0 ? 'FAQ 已更新' : 'FAQ 已创建', 'success');
+                } else {
+                    showToast('保存失败: ' + (data.error || ''), 'error');
+                }
+            } catch(err) {
+                showToast('网络错误: ' + err.message, 'error');
+            }
+        });
+
+        // 文件选择触发
+        document.getElementById('faqFileInput').addEventListener('change', uploadFaqFile);
+
         // 初始加载
         loadConfig();
         loadUsers();
         loadAiAgents();
         loadWorkflowList();
+        loadFaqList();
     </script>
 </body>
 </html>

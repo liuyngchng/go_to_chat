@@ -32,6 +32,7 @@ type ConfigResponse struct {
 	Prompt PromptConfigResp `json:"prompt"`
 	KB     KBConfigResp     `json:"kb"`
 	LLM    LLMParamsResp    `json:"llm"`
+	Faq    FaqConfigResp    `json:"faq"`
 }
 
 type SysConfigResp struct {
@@ -47,6 +48,9 @@ type APIConfigResp struct {
 	EmbeddingAPIURI    string `json:"embedding_api_uri"`
 	EmbeddingAPIKey    string `json:"embedding_api_key"`
 	EmbeddingModelName string `json:"embedding_model_name"`
+	RerankAPIURI       string `json:"rerank_api_uri"`
+	RerankAPIKey       string `json:"rerank_api_key"`
+	RerankModelName    string `json:"rerank_model_name"`
 }
 
 type PromptConfigResp struct {
@@ -54,16 +58,22 @@ type PromptConfigResp struct {
 }
 
 type KBConfigResp struct {
-	ChunkSize      int     `json:"chunk_size"`
-	ChunkOverlap   int     `json:"chunk_overlap"`
-	TopK           int     `json:"top_k"`
-	ScoreThreshold float64 `json:"score_threshold"`
+	ChunkSize       int     `json:"chunk_size"`
+	ChunkOverlap    int     `json:"chunk_overlap"`
+	TopK            int     `json:"top_k"`
+	ScoreThreshold  float64 `json:"score_threshold"`
+	RerankEnabled   bool    `json:"rerank_enabled"`
+	RerankRetrieveN int     `json:"rerank_retrieve_n"`
 }
 
 type LLMParamsResp struct {
 	Temperature float64 `json:"temperature"`
 	TopP        float64 `json:"top_p"`
 	MaxTokens   int     `json:"max_tokens"`
+}
+
+type FaqConfigResp struct {
+	MatchThreshold float64 `json:"match_threshold"`
 }
 
 // GetConfig 获取所有配置
@@ -81,20 +91,28 @@ func (h *ConfigHandler) GetConfig(c *gin.Context) {
 			EmbeddingAPIURI:    h.cfg.API.EmbeddingAPIURI,
 			EmbeddingAPIKey:    h.cfg.API.EmbeddingAPIKey,
 			EmbeddingModelName: h.cfg.API.EmbeddingModelName,
+			RerankAPIURI:       h.cfg.API.RerankAPIURI,
+			RerankAPIKey:       h.cfg.API.RerankAPIKey,
+			RerankModelName:    h.cfg.API.RerankModelName,
 		},
 		Prompt: PromptConfigResp{
 			ChatMsg: h.getPrompt(),
 		},
 		KB: KBConfigResp{
-			ChunkSize:      h.cfg.KB.ChunkSize,
-			ChunkOverlap:   h.cfg.KB.ChunkOverlap,
-			TopK:           h.cfg.KB.TopK,
-			ScoreThreshold: h.cfg.KB.ScoreThreshold,
+			ChunkSize:       h.cfg.KB.ChunkSize,
+			ChunkOverlap:    h.cfg.KB.ChunkOverlap,
+			TopK:            h.cfg.KB.TopK,
+			ScoreThreshold:  h.cfg.KB.ScoreThreshold,
+			RerankEnabled:   h.cfg.KB.RerankEnabled,
+			RerankRetrieveN: h.cfg.KB.RerankRetrieveN,
 		},
 		LLM: LLMParamsResp{
 			Temperature: h.cfg.LLM.Temperature,
 			TopP:        h.cfg.LLM.TopP,
 			MaxTokens:   h.cfg.LLM.MaxTokens,
+		},
+		Faq: FaqConfigResp{
+			MatchThreshold: h.cfg.Faq.MatchThreshold,
 		},
 	}
 
@@ -137,6 +155,9 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 		"api.embedding_api_uri":    req.API.EmbeddingAPIURI,
 		"api.embedding_api_key":    req.API.EmbeddingAPIKey,
 		"api.embedding_model_name": req.API.EmbeddingModelName,
+		"api.rerank_api_uri":       req.API.RerankAPIURI,
+		"api.rerank_api_key":       req.API.RerankAPIKey,
+		"api.rerank_model_name":    req.API.RerankModelName,
 	}
 	for key, value := range apiUpdates {
 		if value != "" {
@@ -180,6 +201,17 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 			return
 		}
 	}
+	// Rerank 开关（布尔值始终保存）
+	if err := h.store.SetConfig("kb.rerank_enabled", fmt.Sprintf("%v", req.KB.RerankEnabled), "是否启用 Rerank 重排序"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 rerank 开关失败: " + err.Error()})
+		return
+	}
+	if req.KB.RerankRetrieveN > 0 {
+		if err := h.store.SetConfig("kb.rerank_retrieve_n", fmt.Sprintf("%d", req.KB.RerankRetrieveN), "Rerank 预检索条数"); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 rerank 预检索条数失败: " + err.Error()})
+			return
+		}
+	}
 
 	// 更新 LLM 参数
 	if req.LLM.Temperature > 0 {
@@ -197,6 +229,14 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 	if req.LLM.MaxTokens > 0 {
 		if err := h.store.SetConfig("llm.max_tokens", fmt.Sprintf("%d", req.LLM.MaxTokens), "LLM 最大 Token 数"); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存最大 Token 数失败: " + err.Error()})
+			return
+		}
+	}
+
+	// 更新 FAQ 匹配阈值
+	if req.Faq.MatchThreshold > 0 {
+		if err := h.store.SetConfig("faq.match_threshold", fmt.Sprintf("%.3f", req.Faq.MatchThreshold), "FAQ 匹配阈值 (0~1)"); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 FAQ 匹配阈值失败: " + err.Error()})
 			return
 		}
 	}

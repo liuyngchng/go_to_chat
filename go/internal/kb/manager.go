@@ -15,6 +15,7 @@ import (
 
 	"go_to_chat/internal/embedding"
 	"go_to_chat/internal/model"
+	"go_to_chat/internal/rerank"
 	"go_to_chat/internal/store"
 	"go_to_chat/internal/vdb"
 )
@@ -28,20 +29,39 @@ const (
 
 // Manager 知识库管理器
 type Manager struct {
-	cfg    *model.Config
-	store  store.MetaStore
-	stopCh chan struct{}
-	mu     sync.RWMutex
-	stores map[int64]vdb.VectorStore // key: vdbID -> store
+	cfg          *model.Config
+	store        store.MetaStore
+	embClient    *embedding.Client
+	rerankClient *rerank.Client
+	stopCh       chan struct{}
+	mu           sync.RWMutex
+	stores       map[int64]vdb.VectorStore // key: vdbID -> store
 }
 
 // NewManager 创建知识库管理器
 func NewManager(cfg *model.Config, metaStore store.MetaStore) *Manager {
+	embClient := embedding.New(
+		cfg.API.EmbeddingAPIURI,
+		cfg.API.EmbeddingAPIKey,
+		cfg.API.EmbeddingModelName,
+	)
+
+	var rerankClient *rerank.Client
+	if cfg.API.RerankAPIURI != "" && cfg.API.RerankModelName != "" {
+		rerankClient = rerank.New(
+			cfg.API.RerankAPIURI,
+			cfg.API.RerankAPIKey,
+			cfg.API.RerankModelName,
+		)
+	}
+
 	return &Manager{
-		cfg:    cfg,
-		store:  metaStore,
-		stopCh: make(chan struct{}),
-		stores: make(map[int64]vdb.VectorStore),
+		cfg:          cfg,
+		store:        metaStore,
+		embClient:    embClient,
+		rerankClient: rerankClient,
+		stopCh:       make(chan struct{}),
+		stores:       make(map[int64]vdb.VectorStore),
 	}
 }
 
@@ -253,9 +273,47 @@ func (m *Manager) SearchInKB(query string, vdbID int64, uid string, topK int, sc
 		return "", fmt.Errorf("query embedding 失败: %w", err)
 	}
 
-	results, err := vs.Search(queryVec, topK, scoreThreshold)
+	// 确定检索条数：如果启用 rerank，先多检索一些
+	retrieveN := topK
+	useRerank := m.cfg.KB.RerankEnabled && m.rerankClient != nil
+	if useRerank {
+		retrieveN = m.cfg.KB.RerankRetrieveN
+		if retrieveN <= topK {
+			retrieveN = topK * 3
+		}
+		if retrieveN > 50 {
+			retrieveN = 50 // 上限 50 条
+		}
+	}
+
+	results, err := vs.Search(queryVec, retrieveN, scoreThreshold)
 	if err != nil {
 		return "", err
+	}
+
+	// Rerank 重排序
+	if useRerank && len(results) > topK {
+		// 提取文档内容列表
+		docs := make([]string, len(results))
+		for i, r := range results {
+			docs[i] = r.Content
+		}
+
+		rerankResults, err := m.rerankClient.Rerank(query, docs, topK)
+		if err != nil {
+			slog.Warn("rerank 失败，回退到原始排序", "error", err)
+			// 回退：使用原始顺序的前 topK 条
+			results = results[:topK]
+		} else {
+			// 按 rerank 结果重新排序
+			reordered := make([]model.SearchResult, 0, len(rerankResults))
+			for _, rr := range rerankResults {
+				if rr.Index >= 0 && rr.Index < len(results) {
+					reordered = append(reordered, results[rr.Index])
+				}
+			}
+			results = reordered
+		}
 	}
 
 	var sb strings.Builder

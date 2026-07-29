@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"go_to_chat/internal/embedding"
 	"go_to_chat/internal/kb"
 	"go_to_chat/internal/model"
 	"go_to_chat/internal/session"
@@ -32,18 +33,28 @@ type Handler struct {
 	User     *UserHandler
 	Agent    *AgentHandler
 	Workflow *WorkflowHandler
+	Faq      *FaqHandler
 }
 
 // New 创建处理器
 func New(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore store.MetaStore) *Handler {
+	embClient := embedding.New(
+		cfg.API.EmbeddingAPIURI,
+		cfg.API.EmbeddingAPIKey,
+		cfg.API.EmbeddingModelName,
+	)
+
+	faqHandler := NewFaqHandler(metaStore, embClient)
+
 	return &Handler{
 		Page:     NewPageHandler(cfg),
-		Chat:     NewChatHandler(cfg, kbMgr, sessionMgr, metaStore),
+		Chat:     NewChatHandler(cfg, kbMgr, sessionMgr, metaStore, faqHandler),
 		Vdb:      NewVdbHandler(cfg, kbMgr, metaStore),
 		Config:   NewConfigHandler(cfg, metaStore),
 		Auth:     NewAuthHandler(cfg, metaStore),
 		User:     NewUserHandler(metaStore),
 		Agent:    NewAgentHandler(metaStore),
 		Workflow: NewWorkflowHandler(metaStore),
+		Faq:      faqHandler,
 	}
 }
