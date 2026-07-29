@@ -29,9 +29,11 @@ func (h *WorkflowHandler) ListPublic(c *gin.Context) {
 	}
 
 	type pubWorkflow struct {
-		ID          int64  `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		ID          int64              `json:"id"`
+		Name        string             `json:"name"`
+		Description string             `json:"description"`
+		Classifier  *model.ClassifierDef `json:"classifier,omitempty"`
+		Nodes       []model.WorkflowNode `json:"nodes,omitempty"`
 	}
 	result := make([]pubWorkflow, 0, len(workflows))
 	for _, w := range workflows {
@@ -39,6 +41,8 @@ func (h *WorkflowHandler) ListPublic(c *gin.Context) {
 			ID:          w.ID,
 			Name:        w.Name,
 			Description: w.Description,
+			Classifier:  w.Classifier,
+			Nodes:       w.Nodes,
 		})
 	}
 
@@ -100,6 +104,7 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 	workflow := &model.WorkflowDef{
 		Name:        req.Name,
 		Description: req.Description,
+		Classifier:  req.Classifier,
 		Nodes:       req.Nodes,
 	}
 
@@ -150,6 +155,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		ID:          id,
 		Name:        req.Name,
 		Description: req.Description,
+		Classifier:  req.Classifier,
 		Nodes:       req.Nodes,
 	}
 

@@ -373,13 +373,28 @@ type AgentListItem struct {
 
 // WorkflowNode 工作流中的一个步骤节点
 type WorkflowNode struct {
-	ID            string `json:"id"`            // 节点唯一 ID，前端生成
-	AgentID       int64  `json:"agent_id"`      // 引用哪个 Agent
-	AgentName     string `json:"agent_name"`    // 冗余展示用
+	ID            string `json:"id"`             // 节点唯一 ID，前端生成
+	AgentID       int64  `json:"agent_id"`       // 引用哪个 Agent
+	AgentName     string `json:"agent_name"`     // 冗余展示用
 	InputTemplate string `json:"input_template"` // 输入模板，用 {{var}} 引用上游变量
-	OutputVar     string `json:"output_var"`    // 本节点输出变量名
-	OrderIndex    int    `json:"order_index"`   // 执行顺序，0-based
-	IsFinal       bool   `json:"is_final"`      // 是否最终输出节点
+	OutputVar     string `json:"output_var"`     // 本节点输出变量名
+	OrderIndex    int    `json:"order_index"`    // 执行顺序，0-based
+	IsFinal       bool   `json:"is_final"`       // 是否最终输出节点
+	Condition     string `json:"condition,omitempty"` // 分类路由条件：匹配 Classifier 输出的 category name，空 = 无条件执行
+}
+
+// IntentCategory 意图分类中的一个类别
+type IntentCategory struct {
+	Name        string   `json:"name"`        // 类别标识，如 "emergency"
+	Description string   `json:"description"` // 类别描述，如 "燃气泄漏等紧急情况"
+	Keywords    []string `json:"keywords"`    // 关键词列表，如 ["漏气","燃气味","报警"]
+}
+
+// ClassifierDef 意图分类器定义
+type ClassifierDef struct {
+	Prompt     string           `json:"prompt"`      // LLM 分类 prompt
+	OutputVar  string           `json:"output_var"`  // 分类结果存到哪个变量，默认 "intent"
+	Categories []IntentCategory `json:"categories"`  // 类别列表
 }
 
 // WorkflowDef 工作流定义
@@ -387,16 +402,18 @@ type WorkflowDef struct {
 	ID          int64          `json:"id"`
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
-	Nodes       []WorkflowNode `json:"nodes"` // 步骤列表，顺序 = 执行顺序
+	Classifier  *ClassifierDef  `json:"classifier,omitempty"` // 意图分类器，nil = 老式线性流程
+	Nodes       []WorkflowNode `json:"nodes"`                  // 步骤列表
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 // CreateWorkflowRequest 创建工作流请求
 type CreateWorkflowRequest struct {
-	Name        string         `json:"name" binding:"required"`
-	Description string         `json:"description"`
-	Nodes       []WorkflowNode `json:"nodes" binding:"required"`
+	Name        string          `json:"name" binding:"required"`
+	Description string          `json:"description"`
+	Classifier  *ClassifierDef  `json:"classifier,omitempty"`
+	Nodes       []WorkflowNode  `json:"nodes" binding:"required"`
 }
 
 // ============================================================

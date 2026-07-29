@@ -153,6 +153,7 @@ func (s *MySQLStore) migrate() error {
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
 			description TEXT NOT NULL DEFAULT '',
+			classifier TEXT NOT NULL DEFAULT '',
 			nodes TEXT NOT NULL,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -740,10 +741,17 @@ func (s *MySQLStore) CreateWorkflow(w *model.WorkflowDef) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("序列化工作流节点失败: %w", err)
 	}
+	classifierJSON, err := json.Marshal(w.Classifier)
+	if err != nil {
+		return 0, fmt.Errorf("序列化分类器失败: %w", err)
+	}
+	if string(classifierJSON) == "null" {
+		classifierJSON = []byte("")
+	}
 
 	result, err := s.db.Exec(
-		"INSERT INTO workflow_def (name, description, nodes) VALUES (?, ?, ?)",
-		w.Name, w.Description, string(nodesJSON),
+		"INSERT INTO workflow_def (name, description, classifier, nodes) VALUES (?, ?, ?, ?)",
+		w.Name, w.Description, string(classifierJSON), string(nodesJSON),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("创建工作流失败: %w", err)
@@ -754,7 +762,7 @@ func (s *MySQLStore) CreateWorkflow(w *model.WorkflowDef) (int64, error) {
 // GetWorkflow 根据 ID 获取工作流
 func (s *MySQLStore) GetWorkflow(id int64) (*model.WorkflowDef, error) {
 	row := s.db.QueryRow(
-		"SELECT id, name, description, nodes, created_at, updated_at FROM workflow_def WHERE id = ?", id,
+		"SELECT id, name, description, classifier, nodes, created_at, updated_at FROM workflow_def WHERE id = ?", id,
 	)
 	return scanWorkflowDef(row)
 }
@@ -762,7 +770,7 @@ func (s *MySQLStore) GetWorkflow(id int64) (*model.WorkflowDef, error) {
 // ListWorkflows 获取所有工作流列表
 func (s *MySQLStore) ListWorkflows() ([]model.WorkflowDef, error) {
 	rows, err := s.db.Query(
-		"SELECT id, name, description, nodes, created_at, updated_at FROM workflow_def ORDER BY id",
+		"SELECT id, name, description, classifier, nodes, created_at, updated_at FROM workflow_def ORDER BY id",
 	)
 	if err != nil {
 		return nil, err
@@ -772,10 +780,16 @@ func (s *MySQLStore) ListWorkflows() ([]model.WorkflowDef, error) {
 	var workflows []model.WorkflowDef
 	for rows.Next() {
 		var w model.WorkflowDef
-		var nodesJSON string
-		err := rows.Scan(&w.ID, &w.Name, &w.Description, &nodesJSON, &w.CreatedAt, &w.UpdatedAt)
+		var classifierJSON, nodesJSON string
+		err := rows.Scan(&w.ID, &w.Name, &w.Description, &classifierJSON, &nodesJSON, &w.CreatedAt, &w.UpdatedAt)
 		if err != nil {
 			return nil, err
+		}
+		if classifierJSON != "" {
+			var c model.ClassifierDef
+			if err := json.Unmarshal([]byte(classifierJSON), &c); err == nil {
+				w.Classifier = &c
+			}
 		}
 		if err := json.Unmarshal([]byte(nodesJSON), &w.Nodes); err != nil {
 			w.Nodes = nil
@@ -791,10 +805,17 @@ func (s *MySQLStore) UpdateWorkflow(w *model.WorkflowDef) error {
 	if err != nil {
 		return fmt.Errorf("序列化工作流节点失败: %w", err)
 	}
+	classifierJSON, err := json.Marshal(w.Classifier)
+	if err != nil {
+		return fmt.Errorf("序列化分类器失败: %w", err)
+	}
+	if string(classifierJSON) == "null" {
+		classifierJSON = []byte("")
+	}
 
 	_, err = s.db.Exec(
-		"UPDATE workflow_def SET name=?, description=?, nodes=? WHERE id=?",
-		w.Name, w.Description, string(nodesJSON), w.ID,
+		"UPDATE workflow_def SET name=?, description=?, classifier=?, nodes=? WHERE id=?",
+		w.Name, w.Description, string(classifierJSON), string(nodesJSON), w.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("更新工作流失败: %w", err)
