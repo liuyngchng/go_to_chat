@@ -5,12 +5,18 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class ChatRequest {
     @JsonProperty("msg")
     private String msg;
+
     @JsonProperty("uid")
     private String uid;
+
     @JsonProperty("session_id")
     private String sessionId;
+
     @JsonProperty("app_source")
     private String appSource;
+
+    @JsonProperty("workflow_id")
+    private long workflowId; // 0 = default mode
 
     public String getMsg() { return msg; }
     public void setMsg(String msg) { this.msg = msg; }
@@ -20,4 +26,6 @@ public class ChatRequest {
     public void setSessionId(String sessionId) { this.sessionId = sessionId; }
     public String getAppSource() { return appSource; }
     public void setAppSource(String appSource) { this.appSource = appSource; }
+    public long getWorkflowId() { return workflowId; }
+    public void setWorkflowId(long workflowId) { this.workflowId = workflowId; }
 }

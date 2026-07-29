@@ -1,0 +1,314 @@
+package com.rd.robot.web.server;
+
+import com.rd.robot.model.User;
+import com.rd.robot.security.TokenProvider;
+import com.rd.robot.web.router.RouteHandler;
+import com.rd.robot.web.router.Router;
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.http.*;
+import io.netty.handler.stream.ChunkedWriteHandler;
+import io.netty.util.CharsetUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.InputStream;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Netty-based HTTP server with routing, static file serving, and middleware support.
+ */
+public class HttpServer {
+
+    private static final Logger log = LoggerFactory.getLogger(HttpServer.class);
+
+    private final int port;
+    private final Router router;
+    private final EventLoopGroup bossGroup;
+    private final EventLoopGroup workerGroup;
+    private Channel channel;
+
+    // ThreadLocal for path parameters per request
+    private static final ThreadLocal<Map<String, String>> PATH_PARAMS = ThreadLocal.withInitial(ConcurrentHashMap::new);
+
+    public HttpServer(int port, Router router) {
+        this.port = port;
+        this.router = router;
+        this.bossGroup = new NioEventLoopGroup(1);
+        this.workerGroup = new NioEventLoopGroup();
+    }
+
+    public void start() {
+        try {
+            ServerBootstrap bootstrap = new ServerBootstrap();
+            bootstrap.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new ChannelInitializer<Channel>() {
+                        @Override
+                        protected void initChannel(Channel ch) {
+                            ChannelPipeline p = ch.pipeline();
+                            p.addLast(new HttpServerCodec());
+                            p.addLast(new HttpObjectAggregator(64 * 1024 * 1024)); // 64MB
+                            p.addLast(new ChunkedWriteHandler());
+                            p.addLast(new ServerHandler(router));
+                        }
+                    });
+
+            channel = bootstrap.bind(port).sync().channel();
+            log.info("HTTP 服务器已启动端口={}", port);
+        } catch (Exception e) {
+            throw new RuntimeException("启动 HTTP 服务器失败", e);
+        }
+    }
+
+    public void stop() {
+        try {
+            if (channel != null) channel.close().sync();
+        } catch (Exception ignored) {}
+        bossGroup.shutdownGracefully();
+        workerGroup.shutdownGracefully();
+    }
+
+    // ============================================================
+    // Netty ChannelHandler
+    // ============================================================
+
+    private static class ServerHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
+
+        private final Router router;
+
+        ServerHandler(Router router) {
+            this.router = router;
+        }
+
+        @Override
+        protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest request) {
+            String path = sanitizePath(request.uri());
+            String method = request.method().name();
+
+            // Static files
+            if (path.startsWith("/static/")) {
+                serveStatic(ctx, path);
+                return;
+            }
+
+            // Route matching
+            Router.RouteMatch match = router.match(method, path);
+            if (match != null) {
+                // Store path params
+                PATH_PARAMS.set(match.getPathParams());
+
+                try {
+                    // Apply auth middleware based on path
+                    if (requiresAuth(path)) {
+                        User user = authenticateRequest(request);
+                        if (user == null) {
+                            sendJson(ctx, 401, "{\"error\":\"未提供有效认证 token\"}");
+                            return;
+                        }
+                        // Check admin-only paths
+                        if (isAdminPath(path) && user.getRole() != User.ROLE_ADMIN) {
+                            sendJson(ctx, 403, "{\"error\":\"仅管理员可访问\"}");
+                            return;
+                        }
+                    }
+
+                    match.getHandler().handle(ctx, request);
+                } catch (Exception e) {
+                    log.error("处理请求失败 method={} path={}", method, path, e);
+                    sendError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "内部服务器错误");
+                } finally {
+                    PATH_PARAMS.remove();
+                }
+            } else {
+                sendError(ctx, HttpResponseStatus.NOT_FOUND, "404 Not Found");
+            }
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            log.error("HTTP 处理异常", cause);
+            ctx.close();
+        }
+
+        private boolean requiresAuth(String path) {
+            // Login page and login API are public
+            if (path.equals("/login") || path.equals("/api/login")) return false;
+            // Static files are public
+            if (path.startsWith("/static/")) return false;
+            return true;
+        }
+
+        private boolean isAdminPath(String path) {
+            return path.startsWith("/admin/") || path.equals("/api/users") || path.startsWith("/api/users/")
+                    || path.equals("/api/ai-agents") || path.startsWith("/api/ai-agents/")
+                    || path.equals("/api/workflows") || path.startsWith("/api/workflows/")
+                    || path.equals("/api/config") && !path.equals("/api/config");
+        }
+
+        private User authenticateRequest(FullHttpRequest request) {
+            String tokenStr = TokenProvider.extractToken(
+                    request.headers().get(HttpHeaderNames.AUTHORIZATION),
+                    getQueryParam(request, "t")
+            );
+            if (tokenStr == null) return null;
+            return TokenProvider.parseToken(tokenStr);
+        }
+    }
+
+    // ============================================================
+    // Static file serving
+    // ============================================================
+
+    private static void serveStatic(ChannelHandlerContext ctx, String path) {
+        String resourcePath = "static/" + path.substring(8);
+
+        try (InputStream in = HttpServer.class.getClassLoader().getResourceAsStream(resourcePath)) {
+            if (in == null) {
+                sendError(ctx, HttpResponseStatus.NOT_FOUND, "404 Not Found");
+                return;
+            }
+
+            byte[] data = in.readAllBytes();
+            String contentType = getContentType(path);
+
+            FullHttpResponse response = new DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1, HttpResponseStatus.OK,
+                    Unpooled.wrappedBuffer(data));
+            response.headers()
+                    .set(HttpHeaderNames.CONTENT_TYPE, contentType)
+                    .set(HttpHeaderNames.CONTENT_LENGTH, data.length)
+                    .set(HttpHeaderNames.CACHE_CONTROL, "public, max-age=3600");
+            ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+        } catch (Exception e) {
+            sendError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "读取静态文件失败");
+        }
+    }
+
+    private static String getContentType(String path) {
+        if (path.endsWith(".css")) return "text/css; charset=utf-8";
+        if (path.endsWith(".js")) return "application/javascript; charset=utf-8";
+        if (path.endsWith(".html")) return "text/html; charset=utf-8";
+        if (path.endsWith(".png")) return "image/png";
+        if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+        if (path.endsWith(".svg")) return "image/svg+xml";
+        if (path.endsWith(".woff2")) return "font/woff2";
+        if (path.endsWith(".woff")) return "font/woff";
+        return "application/octet-stream";
+    }
+
+    // ============================================================
+    // Response helpers
+    // ============================================================
+
+    public static void sendJson(ChannelHandlerContext ctx, int statusCode, String json) {
+        FullHttpResponse response = new DefaultFullHttpResponse(
+                HttpVersion.HTTP_1_1,
+                HttpResponseStatus.valueOf(statusCode),
+                Unpooled.copiedBuffer(json, CharsetUtil.UTF_8));
+        response.headers()
+                .set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=utf-8")
+                .set(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
+        ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+    }
+
+    public static void sendHtml(ChannelHandlerContext ctx, String html) {
+        FullHttpResponse response = new DefaultFullHttpResponse(
+                HttpVersion.HTTP_1_1, HttpResponseStatus.OK,
+                Unpooled.copiedBuffer(html, CharsetUtil.UTF_8));
+        response.headers()
+                .set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=utf-8")
+                .set(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
+        ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+    }
+
+    public static void sendError(ChannelHandlerContext ctx, HttpResponseStatus status, String message) {
+        String json = "{\"error\":\"" + escapeJson(message) + "\"}";
+        sendJson(ctx, status.code(), json);
+    }
+
+    // ============================================================
+    // Request helpers
+    // ============================================================
+
+    public static String sanitizePath(String uri) {
+        int queryIdx = uri.indexOf('?');
+        return queryIdx >= 0 ? uri.substring(0, queryIdx) : uri;
+    }
+
+    public static String getQueryParam(FullHttpRequest request, String key) {
+        String uri = request.uri();
+        int queryIdx = uri.indexOf('?');
+        if (queryIdx < 0) return null;
+
+        String query = uri.substring(queryIdx + 1);
+        for (String part : query.split("&")) {
+            String[] kv = part.split("=", 2);
+            if (kv.length == 2 && kv[0].equals(key)) {
+                return urlDecode(kv[1]);
+            }
+        }
+        return null;
+    }
+
+    public static String getFormParam(FullHttpRequest request, String key) {
+        String contentType = request.headers().get(HttpHeaderNames.CONTENT_TYPE);
+        if (contentType == null || !contentType.contains("application/x-www-form-urlencoded")) {
+            return null;
+        }
+
+        String body = request.content().toString(CharsetUtil.UTF_8);
+        for (String part : body.split("&")) {
+            String[] kv = part.split("=", 2);
+            if (kv.length == 2 && kv[0].equals(key)) {
+                return urlDecode(kv[1]);
+            }
+        }
+        return null;
+    }
+
+    public static String getParam(FullHttpRequest request, String key) {
+        // Check path params first (from Router)
+        Map<String, String> pathParams = PATH_PARAMS.get();
+        if (pathParams != null && pathParams.containsKey(key)) {
+            return pathParams.get(key);
+        }
+        // Then form
+        String val = getFormParam(request, key);
+        if (val != null) return val;
+        // Then query
+        return getQueryParam(request, key);
+    }
+
+    public static String getPathParam(String key) {
+        Map<String, String> pathParams = PATH_PARAMS.get();
+        return pathParams != null ? pathParams.get(key) : null;
+    }
+
+    private static String escapeJson(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (char c : s.toCharArray()) {
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default: sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String urlDecode(String s) {
+        try {
+            return java.net.URLDecoder.decode(s, CharsetUtil.UTF_8);
+        } catch (Exception e) {
+            return s;
+        }
+    }
+}

@@ -1,0 +1,139 @@
+package com.rd.robot.security;
+
+import com.rd.robot.model.User;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.HexFormat;
+
+/**
+ * HMAC-SHA256 token authentication.
+ * Token format: base64(user_name|role|expiry_timestamp|hmac_signature)
+ * Compatible with the Go implementation.
+ */
+public class TokenProvider {
+
+    private static final Logger log = LoggerFactory.getLogger(TokenProvider.class);
+    private static final byte[] SECRET = "go_to_chat_secret_2026".getBytes(StandardCharsets.UTF_8);
+    private static final long TOKEN_TTL_SECONDS = 2 * 3600; // 2 hours
+    private static final long API_TOKEN_TTL_SECONDS = 2 * 3600; // 2 hours
+
+    private TokenProvider() {}
+
+    /**
+     * Generate an HMAC-signed token.
+     */
+    public static String generateToken(String userName, int role, Instant expiry) {
+        long expiryUnix = expiry.getEpochSecond();
+        String payload = userName + "|" + role + "|" + expiryUnix;
+
+        // HMAC-SHA256, take first 16 hex chars
+        String sig = hmacSha256(payload).substring(0, 16);
+        String full = payload + "|" + sig;
+
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(full.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Generate a token with default TTL (2 hours).
+     */
+    public static String generateToken(String userName, int role) {
+        return generateToken(userName, role, Instant.now().plusSeconds(TOKEN_TTL_SECONDS));
+    }
+
+    /**
+     * Generate an API token with default TTL.
+     */
+    public static String generateApiToken(String userName, int role) {
+        return generateToken(userName, role, Instant.now().plusSeconds(API_TOKEN_TTL_SECONDS));
+    }
+
+    /**
+     * Parse and validate a token. Returns null if invalid or expired.
+     */
+    public static User parseToken(String tokenStr) {
+        if (tokenStr == null || tokenStr.isEmpty()) return null;
+
+        try {
+            byte[] data = Base64.getUrlDecoder().decode(tokenStr);
+            String decoded = new String(data, StandardCharsets.UTF_8);
+
+            String[] parts = decoded.split("\\|", 4);
+            if (parts.length != 4) return null;
+
+            String userName = parts[0];
+            int role = Integer.parseInt(parts[1]);
+            long expiryUnix = Long.parseLong(parts[2]);
+            String sig = parts[3];
+
+            // Check expiry
+            if (Instant.now().getEpochSecond() > expiryUnix) return null;
+
+            // Verify signature
+            String payload = userName + "|" + role + "|" + expiryUnix;
+            String expectedSig = hmacSha256(payload).substring(0, 16);
+
+            if (!sig.equals(expectedSig)) return null;
+
+            User user = new User();
+            user.setUserName(userName);
+            user.setRole(role);
+            return user;
+
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Extract the token string from an Authorization header or URL parameter.
+     * Priority: URL param "t" > Authorization: Bearer header
+     */
+    public static String extractToken(String authHeader, String queryParam) {
+        // URL param first
+        if (queryParam != null && !queryParam.isEmpty()) {
+            return queryParam;
+        }
+        // Authorization header
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            return authHeader.substring(7);
+        }
+        return null;
+    }
+
+    /**
+     * Compute MD5 hash of a string (for password verification).
+     */
+    public static String md5Hash(String s) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("MD5 计算失败", e);
+        }
+    }
+
+    private static String hmacSha256(String data) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            SecretKeySpec keySpec = new SecretKeySpec(SECRET, "HmacSHA256");
+            mac.init(keySpec);
+            byte[] sigBytes = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(sigBytes);
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+            throw new RuntimeException("HMAC-SHA256 计算失败", e);
+        }
+    }
+}

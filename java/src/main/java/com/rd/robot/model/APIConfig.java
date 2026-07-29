@@ -5,16 +5,30 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class APIConfig {
     @JsonProperty("llm_api_uri")
     private String llmApiUri;
+
     @JsonProperty("llm_api_key")
     private String llmApiKey;
+
     @JsonProperty("llm_model_name")
     private String llmModelName;
+
     @JsonProperty("embedding_api_uri")
     private String embeddingApiUri;
+
     @JsonProperty("embedding_api_key")
     private String embeddingApiKey;
+
     @JsonProperty("embedding_model_name")
     private String embeddingModelName;
+
+    @JsonProperty("rerank_api_uri")
+    private String rerankApiUri;
+
+    @JsonProperty("rerank_api_key")
+    private String rerankApiKey;
+
+    @JsonProperty("rerank_model_name")
+    private String rerankModelName;
 
     public String getLlmApiUri() { return llmApiUri; }
     public void setLlmApiUri(String llmApiUri) { this.llmApiUri = llmApiUri; }
@@ -28,4 +42,10 @@ public class APIConfig {
     public void setEmbeddingApiKey(String embeddingApiKey) { this.embeddingApiKey = embeddingApiKey; }
     public String getEmbeddingModelName() { return embeddingModelName; }
     public void setEmbeddingModelName(String embeddingModelName) { this.embeddingModelName = embeddingModelName; }
+    public String getRerankApiUri() { return rerankApiUri; }
+    public void setRerankApiUri(String rerankApiUri) { this.rerankApiUri = rerankApiUri; }
+    public String getRerankApiKey() { return rerankApiKey; }
+    public void setRerankApiKey(String rerankApiKey) { this.rerankApiKey = rerankApiKey; }
+    public String getRerankModelName() { return rerankModelName; }
+    public void setRerankModelName(String rerankModelName) { this.rerankModelName = rerankModelName; }
 }
