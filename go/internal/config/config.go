@@ -56,15 +56,11 @@ func Load(path string) (*model.Config, error) {
 	return &cfg, nil
 }
 
-// LoadRuntimeConfig 从数据库加载运行时配置（sys、api），覆盖 YAML 中的初始值。
+// LoadRuntimeConfig 从数据库加载运行时配置（sys.name、api 等），覆盖 YAML 中的初始值。
+// 注意：sys.auth 只从 cfg.yml 读取，不从数据库加载，也不在页面上设置。
 // 如果 sys_config 表为空，则用 cfg 中的 YAML 值作为种子写入数据库。
 func LoadRuntimeConfig(s store.MetaStore, cfg *model.Config) error {
-	sysAuth := "false"
-	if cfg.Sys.Auth {
-		sysAuth = "true"
-	}
-
-	if err := s.SeedDefaultConfigs(cfg.Sys.Name, sysAuth); err != nil {
+	if err := s.SeedDefaultConfigs(cfg.Sys.Name); err != nil {
 		return fmt.Errorf("初始化默认配置失败: %w", err)
 	}
 
@@ -95,9 +91,7 @@ func applyConfig(configs map[string]string, cfg *model.Config) {
 	if v, ok := configs["sys.name"]; ok && v != "" {
 		cfg.Sys.Name = v
 	}
-	if v, ok := configs["sys.auth"]; ok {
-		cfg.Sys.Auth = v == "true"
-	}
+	// sys.auth 只从 cfg.yml 读取，不从数据库覆盖
 	if v, ok := configs["sys.api_auth"]; ok {
 		cfg.Sys.ApiAuth = v == "true"
 	}

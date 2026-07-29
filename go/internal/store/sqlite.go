@@ -916,7 +916,7 @@ func (s *SQLiteStore) GetAllConfigs() (map[string]string, error) {
 }
 
 // SeedDefaultConfigs 初始化默认配置（仅当 sys_config 表为空时执行）
-func (s *SQLiteStore) SeedDefaultConfigs(sysName, sysAuth string) error {
+func (s *SQLiteStore) SeedDefaultConfigs(sysName string) error {
 	// 检查是否已有配置
 	var count int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM sys_config").Scan(&count)
@@ -929,7 +929,6 @@ func (s *SQLiteStore) SeedDefaultConfigs(sysName, sysAuth string) error {
 
 	entries := []struct{ key, value, desc string }{
 		{"sys.name", sysName, "系统名称"},
-		{"sys.auth", sysAuth, "是否启用认证 (true/false)"},
 		{"sys.api_auth", "true", "是否启用接口认证 (true/false)"},
 		{"prompt.chat_msg", defaultChatPrompt, "聊天提示词模板"},
 			// 知识库参数

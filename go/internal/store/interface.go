@@ -107,7 +107,7 @@ type MetaStore interface {
 	GetConfig(key string) (string, error)
 	SetConfig(key, value, description string) error
 	GetAllConfigs() (map[string]string, error)
-	SeedDefaultConfigs(sysName, sysAuth string) error
+	SeedDefaultConfigs(sysName string) error
 
 	// ============================================================
 	// 生命周期

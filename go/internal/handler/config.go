@@ -134,12 +134,7 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 			return
 		}
 	}
-	if req.Sys.Auth != "" {
-		if err := h.store.SetConfig("sys.auth", req.Sys.Auth, "是否启用认证"); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存认证配置失败: " + err.Error()})
-			return
-		}
-	}
+	// sys.auth 只从 cfg.yml 读取，不允许在页面上修改
 	if req.Sys.ApiAuth != "" {
 		if err := h.store.SetConfig("sys.api_auth", req.Sys.ApiAuth, "是否启用接口认证"); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存接口认证配置失败: " + err.Error()})
