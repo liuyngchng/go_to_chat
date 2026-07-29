@@ -1687,55 +1687,6 @@
             document.getElementById('wfFlowchart').innerHTML = h;
         }
 
-        async function saveWorkflowMeta() {
-            var name = document.getElementById('wfEditName').value.trim();
-            if (!name) { alert('请输入工作流名称'); return; }
-            if (!currentWfData) return;
-            try {
-                var body = {
-                    name: name,
-                    description: currentWfData.description || '',
-                    nodes: currentWfData.nodes,
-                    classifier: currentWfData.classifier || null
-                };
-                var resp = await authFetch('/api/workflows/' + currentWfId, {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(body)
-                });
-                var data = await resp.json();
-                if (data.status === 'ok') {
-                    showToast('工作流名称已保存', 'success');
-                    loadWorkflowList();
-                } else {
-                    showToast('保存失败: ' + (data.error||''), 'error');
-                }
-            } catch(err) {
-                showToast('网络错误: ' + err.message, 'error');
-            }
-        }
-
-        async function deleteWorkflow() {
-            if (!confirm('确定删除该工作流？此操作不可恢复。')) return;
-            try {
-                var resp = await authFetch('/api/workflows/' + currentWfId, { method: 'DELETE' });
-                var data = await resp.json();
-                if (data.status === 'ok') {
-                    currentWfId = 0;
-                    currentWfData = null;
-                    document.getElementById('wfView').style.display = 'none';
-                    document.getElementById('wfViewPlaceholder').style.display = 'block';
-                    document.getElementById('newWfName').value = '';
-                    loadWorkflowList();
-                    showToast('工作流已删除', 'success');
-                } else {
-                    showToast('删除失败: ' + (data.error||''), 'error');
-                }
-            } catch(err) {
-                showToast('网络错误: ' + err.message, 'error');
-            }
-        }
-
         // ============================================================
         // 在线座席
         // ============================================================
