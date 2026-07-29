@@ -20,9 +20,9 @@ import java.io.File;
 /**
  * Application entry point.
  */
-public class Application {
+public class Bootstrap {
 
-    private static final Logger log = LoggerFactory.getLogger(Application.class);
+    private static final Logger log = LoggerFactory.getLogger(Bootstrap.class);
 
     public static void main(String[] args) {
         // 1. Load config
@@ -140,7 +140,7 @@ public class Application {
         router.addRoute("DELETE", "/api/workflows/:id", workflowController::delete);
 
         // 11. Start HTTP server
-        HttpServer server = new HttpServer(cfg.getServer().getPort(), router);
+        HttpServer server = new HttpServer(cfg.getServer().getPort(), router, cfg);
         server.start();
 
         // 12. Register shutdown hook
@@ -152,7 +152,7 @@ public class Application {
             log.info("服务已关闭");
         }));
 
-        log.info("服务启动 addr=:{}", cfg.getServer().getPort());
+        log.info("服务启动: http://localhost:{}", cfg.getServer().getPort());
     }
 
     private static MetaStore createMetaStore(Config cfg) {

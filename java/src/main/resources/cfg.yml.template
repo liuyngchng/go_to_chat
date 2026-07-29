@@ -1,5 +1,6 @@
 # go_to_chat AI客服系统配置文件
-# 将此文件复制为 cfg.yml 并修改配置
+# 部署时复制为 cfg.yml 并根据实际环境修改：
+#   cp cfg.yml.template cfg.yml
 server:
   port: 19007
   debug: true
@@ -8,46 +9,82 @@ sys:
   name: 对话机器人
   auth: false
 
-api:
-  # LLM API 配置 (OpenAI 兼容接口)
-  # DeepSeek 示例: https://api.deepseek.com/v1
-  # OpenAI 示例: https://api.openai.com/v1
-  # 阿里云百炼: https://dashscope.aliyuncs.com/compatible-mode/v1
-  llm_api_uri: https://api.deepseek.com/v1
-  llm_api_key: sk-xxx
-  llm_model_name: deepseek-chat
+# LLM / Embedding / Rerank API 配置请在系统管理页面中设置，无需写入此文件
+# 如需在此文件中配置，可添加 api 段（与 DB 中的配置共存，DB 优先）：
+# api:
+#   llm_api_uri: https://api.deepseek.com/v1
+#   llm_api_key: sk-xxx
+#   llm_model_name: deepseek-chat
+#   embedding_api_uri: https://api.openai.com/v1
+#   embedding_api_key: sk-xxx
+#   embedding_model_name: text-embedding-3-small
+#   rerank_api_uri: ""
+#   rerank_api_key: ""
+#   rerank_model_name: ""
 
-  # Embedding API 配置 (OpenAI 兼容接口)
-  embedding_api_uri: https://api.openai.com/v1
-  embedding_api_key: sk-xxx
-  embedding_model_name: text-embedding-3-small
+# ============================================================
+# 元数据存储配置
+# ============================================================
+# backend 可选值:
+#   sqlite — 本地 SQLite（默认，无需额外配置，启动前将 cfg.db.template 复制为 cfg.db）
+#   mysql  — MySQL 数据库（需同时配置下方 mysql 段）
+store:
+  backend: "sqlite"
 
-# Milvus 向量数据库配置
+# MySQL 配置（仅 store.backend 设为 "mysql" 时需要）
+mysql:
+  # DSN 格式: user:password@tcp(host:port)/dbname?charset=utf8mb4&parseTime=True&loc=Local
+  # 示例:
+  #   dsn: "root:123456@tcp(127.0.0.1:3306)/go_to_chat?charset=utf8mb4&parseTime=True&loc=Local"
+  # 首次启动前需先在 MySQL 中创建数据库:
+  #   CREATE DATABASE go_to_chat CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  dsn: ""
+
+# ============================================================
+# 向量存储配置
+# ============================================================
+# backend 可选值:
+#   local  — 本地 SQLite 向量存储（默认，数据文件在 ./vdb/vectors.db）
+#   milvus — 远程 Milvus（需同时配置下方 milvus 段）
+#   qdrant — 远程 Qdrant（需同时配置下方 qdrant 段）
+vector:
+  backend: "local"
+
+# Milvus 向量数据库配置（仅 vector.backend 设为 "milvus" 时需要）
 milvus:
-  # Milvus 服务地址，留空则使用本地嵌入式向量存储
-  # 远程示例: http://localhost:19530
+  # Milvus 服务地址（留空则回退为本地存储）
+  # 示例: "http://localhost:19530"
   uri: ""
-  # Milvus 认证 token (可选)
+  # Milvus 认证 token（可选）
   token: ""
 
-# 提示词模板
-prompts:
-  # 知识库问答提示词
-  # 可用变量: {context}, {history}, {question}, {cur_date}, {cur_week}
-  chat_msg: |
-    你是专业的AI客服，负责解答客户咨询。你必须基于以下知识库信息回答用户问题。
-    如果知识库中没有相关信息，请引导用户转接人工客服。
+# Qdrant 向量数据库配置（仅 vector.backend 设为 "qdrant" 时需要）
+qdrant:
+  # Qdrant 服务地址
+  host: "localhost"
+  # gRPC 端口（默认为 6334，Qdrant Cloud 通常使用 443）
+  port: 6334
+  # API Key（Qdrant Cloud 需要，本地部署可留空）
+  api_key: ""
+  # 是否启用 TLS（Qdrant Cloud 建议开启）
+  use_tls: false
 
-    今日日期：{cur_date}（星期{cur_week}）
-
-    知识库内容：
-    ---
-    {context}
-    ---
-
-    历史对话：
-    {history}
-
-    用户问题：{question}
-
-    请用亲切、专业的中文回答：
+# 提示词模板（可选，可在系统管理页面中设置）
+# prompts:
+#   chat_msg: |
+#     你是专业的AI客服，负责解答客户咨询。你必须基于以下知识库信息回答用户问题。
+#     如果知识库中没有相关信息，请引导用户转接人工客服。
+#
+#     今日日期：{cur_date}（星期{cur_week}）
+#
+#     知识库内容：
+#     ---
+#     {context}
+#     ---
+#
+#     历史对话：
+#     {history}
+#
+#     用户问题：{question}
+#
+#     请用亲切、专业的中文回答：

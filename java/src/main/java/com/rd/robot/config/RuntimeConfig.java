@@ -1,6 +1,10 @@
 package com.rd.robot.config;
 
+import com.rd.robot.model.APIConfig;
 import com.rd.robot.model.Config;
+import com.rd.robot.model.FaqConfig;
+import com.rd.robot.model.KBConfig;
+import com.rd.robot.model.LLMParams;
 import com.rd.robot.repository.MetaStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +54,9 @@ public class RuntimeConfig {
         if (configs.containsKey("sys.api_auth")) {
             cfg.getSys().setApiAuth("true".equals(configs.get("sys.api_auth")));
         }
+        if (cfg.getApi() == null) {
+            cfg.setApi(new APIConfig());
+        }
         if (configs.containsKey("api.llm_api_uri")) {
             cfg.getApi().setLlmApiUri(configs.get("api.llm_api_uri"));
         }
@@ -79,6 +86,9 @@ public class RuntimeConfig {
         }
 
         // KB params
+        if (cfg.getKb() == null) {
+            cfg.setKb(new KBConfig());
+        }
         if (configs.containsKey("kb.chunk_size")) {
             cfg.getKb().setChunkSize(parseInt(configs.get("kb.chunk_size"), 300));
         }
@@ -99,6 +109,9 @@ public class RuntimeConfig {
         }
 
         // LLM params
+        if (cfg.getLlm() == null) {
+            cfg.setLlm(new LLMParams());
+        }
         if (configs.containsKey("llm.temperature")) {
             cfg.getLlm().setTemperature(parseDouble(configs.get("llm.temperature"), 0.7));
         }
@@ -110,6 +123,9 @@ public class RuntimeConfig {
         }
 
         // FAQ params
+        if (cfg.getFaq() == null) {
+            cfg.setFaq(new FaqConfig());
+        }
         if (configs.containsKey("faq.match_threshold")) {
             cfg.getFaq().setMatchThreshold(parseDouble(configs.get("faq.match_threshold"), 0.85));
         }

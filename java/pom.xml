@@ -115,7 +115,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.rd.robot.Main</mainClass>
+                            <mainClass>com.rd.robot.Bootstrap</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
@@ -133,7 +133,7 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.rd.robot.Main</mainClass>
+                                    <mainClass>com.rd.robot.Bootstrap</mainClass>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>

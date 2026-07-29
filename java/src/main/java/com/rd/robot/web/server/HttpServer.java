@@ -1,5 +1,6 @@
 package com.rd.robot.web.server;
 
+import com.rd.robot.model.Config;
 import com.rd.robot.model.User;
 import com.rd.robot.security.TokenProvider;
 import com.rd.robot.web.router.RouteHandler;
@@ -28,6 +29,7 @@ public class HttpServer {
 
     private final int port;
     private final Router router;
+    private final Config config;
     private final EventLoopGroup bossGroup;
     private final EventLoopGroup workerGroup;
     private Channel channel;
@@ -35,9 +37,10 @@ public class HttpServer {
     // ThreadLocal for path parameters per request
     private static final ThreadLocal<Map<String, String>> PATH_PARAMS = ThreadLocal.withInitial(ConcurrentHashMap::new);
 
-    public HttpServer(int port, Router router) {
+    public HttpServer(int port, Router router, Config config) {
         this.port = port;
         this.router = router;
+        this.config = config;
         this.bossGroup = new NioEventLoopGroup(1);
         this.workerGroup = new NioEventLoopGroup();
     }
@@ -54,7 +57,7 @@ public class HttpServer {
                             p.addLast(new HttpServerCodec());
                             p.addLast(new HttpObjectAggregator(64 * 1024 * 1024)); // 64MB
                             p.addLast(new ChunkedWriteHandler());
-                            p.addLast(new ServerHandler(router));
+                            p.addLast(new ServerHandler(router, config));
                         }
                     });
 
@@ -80,9 +83,11 @@ public class HttpServer {
     private static class ServerHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
         private final Router router;
+        private final Config config;
 
-        ServerHandler(Router router) {
+        ServerHandler(Router router, Config config) {
             this.router = router;
+            this.config = config;
         }
 
         @Override
@@ -136,10 +141,12 @@ public class HttpServer {
         }
 
         private boolean requiresAuth(String path) {
-            // Login page and login API are public
-            if (path.equals("/login") || path.equals("/api/login")) return false;
-            // Static files are public
-            if (path.startsWith("/static/")) return false;
+            // If API auth is disabled globally, skip token check
+            if (!config.getSys().isApiAuth()) return false;
+            // Only API routes need token authentication
+            if (!path.startsWith("/api/")) return false;
+            // Login API is public
+            if (path.equals("/api/login")) return false;
             return true;
         }
 
