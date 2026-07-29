@@ -242,7 +242,8 @@ public class HttpServer {
     }
 
     public static void sendError(ChannelHandlerContext ctx, HttpResponseStatus status, String message) {
-        String json = "{\"error\":\"" + escapeJson(message) + "\"}";
+        String safeMsg = message != null ? message : "内部服务器错误";
+        String json = "{\"error\":\"" + escapeJson(safeMsg) + "\"}";
         sendJson(ctx, status.code(), json);
     }
 

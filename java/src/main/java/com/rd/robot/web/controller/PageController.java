@@ -63,10 +63,15 @@ public class PageController {
 
     public void configIndex(ChannelHandlerContext ctx, FullHttpRequest request) {
         if (requireAuth(ctx, request)) return;
+        // Admin-only page
+        int role = getUserRole(request);
+        if (role != User.ROLE_ADMIN) {
+            HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN, "仅管理员可访问");
+            return;
+        }
         try {
             String uid = getUid(request);
             String token = getToken(request);
-            int role = getUserRole(request);
 
             String html = loadTemplate("templates/config.html")
                     .replace("{{sys_name}}", cfg.getSys().getName())
@@ -115,6 +120,13 @@ public class PageController {
     }
 
     private String getUid(FullHttpRequest request) {
+        // Get username from authenticated token first
+        String token = getToken(request);
+        if (token != null) {
+            User user = TokenProvider.parseToken(token);
+            if (user != null) return user.getUserName();
+        }
+        // Fallback to query param
         String uid = HttpServer.getQueryParam(request, "uid");
         return uid != null ? uid : "default";
     }

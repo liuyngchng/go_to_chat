@@ -300,3 +300,72 @@ queryInput.addEventListener('keydown', function(e) {
         queryForm.dispatchEvent(new Event('submit'));
     }
 });
+
+// 获取 token
+function getToken() {
+    return localStorage.getItem('token') || '';
+}
+
+// 带认证的 fetch
+function authFetch(url, options) {
+    options = options || {};
+    options.headers = options.headers || {};
+    options.headers['Authorization'] = 'Bearer ' + getToken();
+    return fetch(url, options);
+}
+
+// 注销
+async function logout() {
+    try {
+        await authFetch('/api/logout', { method: 'POST' });
+    } catch (e) {
+        // ignore
+    }
+    window.location.href = '/login';
+}
+
+// 修改密码弹窗
+function showChangePwd() {
+    document.getElementById('pwdModal').style.display = 'flex';
+    document.getElementById('oldPwd').value = '';
+    document.getElementById('newPwd').value = '';
+    document.getElementById('pwdError').style.display = 'none';
+}
+
+function hideChangePwd() {
+    document.getElementById('pwdModal').style.display = 'none';
+}
+
+// 修改密码表单提交
+var pwdForm = document.getElementById('pwdForm');
+if (pwdForm) {
+    pwdForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        var oldPwd = document.getElementById('oldPwd').value.trim();
+        var newPwd = document.getElementById('newPwd').value.trim();
+        var errDiv = document.getElementById('pwdError');
+        if (!oldPwd || !newPwd) {
+            errDiv.textContent = '密码不能为空';
+            errDiv.style.display = 'block';
+            return;
+        }
+        try {
+            var resp = await authFetch('/api/user/password', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ old_pwd: oldPwd, new_pwd: newPwd })
+            });
+            var data = await resp.json();
+            if (data.status === 'ok') {
+                hideChangePwd();
+                alert('密码修改成功');
+            } else {
+                errDiv.textContent = data.error || '修改失败';
+                errDiv.style.display = 'block';
+            }
+        } catch (err) {
+            errDiv.textContent = '网络错误: ' + err.message;
+            errDiv.style.display = 'block';
+        }
+    });
+}

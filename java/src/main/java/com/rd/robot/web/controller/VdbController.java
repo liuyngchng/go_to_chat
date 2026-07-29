@@ -217,7 +217,10 @@ public class VdbController {
     }
 
     private void sendError(ChannelHandlerContext ctx, String message) {
-        sendJson(ctx, 500, Map.of("error", message));
+        String safeMsg = message != null ? message : "内部服务器错误";
+        Map<String, Object> m = new java.util.HashMap<>();
+        m.put("error", safeMsg);
+        sendJson(ctx, 500, m);
     }
 
     // ============================================================

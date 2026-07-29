@@ -37,41 +37,49 @@ public class ConfigController {
      */
     public void getConfig(ChannelHandlerContext ctx, FullHttpRequest request) {
         try {
-            Map<String, Object> resp = Map.of("data", Map.of(
-                    "sys", Map.of(
-                            "api_auth", cfg.getSys().isApiAuth() ? "true" : "false"
-                    ),
-                    "api", Map.of(
-                            "llm_api_uri", cfg.getApi().getLlmApiUri(),
-                            "llm_api_key", cfg.getApi().getLlmApiKey(),
-                            "llm_model_name", cfg.getApi().getLlmModelName(),
-                            "embedding_api_uri", cfg.getApi().getEmbeddingApiUri(),
-                            "embedding_api_key", cfg.getApi().getEmbeddingApiKey(),
-                            "embedding_model_name", cfg.getApi().getEmbeddingModelName(),
-                            "rerank_api_uri", cfg.getApi().getRerankApiUri(),
-                            "rerank_api_key", cfg.getApi().getRerankApiKey(),
-                            "rerank_model_name", cfg.getApi().getRerankModelName()
-                    ),
-                    "prompt", Map.of("chat_msg", getPrompt()),
-                    "kb", Map.of(
-                            "chunk_size", cfg.getKb().getChunkSize(),
-                            "chunk_overlap", cfg.getKb().getChunkOverlap(),
-                            "top_k", cfg.getKb().getTopK(),
-                            "score_threshold", cfg.getKb().getScoreThreshold(),
-                            "rerank_enabled", cfg.getKb().isRerankEnabled(),
-                            "rerank_retrieve_n", cfg.getKb().getRerankRetrieveN()
-                    ),
-                    "llm", Map.of(
-                            "temperature", cfg.getLlm().getTemperature(),
-                            "top_p", cfg.getLlm().getTopP(),
-                            "max_tokens", cfg.getLlm().getMaxTokens()
-                    ),
-                    "faq", Map.of("match_threshold", cfg.getFaq().getMatchThreshold())
+            Map<String, Object> data = new java.util.LinkedHashMap<>();
+            data.put("sys", _map("api_auth", cfg.getSys().isApiAuth() ? "true" : "false"));
+            data.put("api", _map(
+                    "llm_api_uri", cfg.getApi().getLlmApiUri(),
+                    "llm_api_key", cfg.getApi().getLlmApiKey(),
+                    "llm_model_name", cfg.getApi().getLlmModelName(),
+                    "embedding_api_uri", cfg.getApi().getEmbeddingApiUri(),
+                    "embedding_api_key", cfg.getApi().getEmbeddingApiKey(),
+                    "embedding_model_name", cfg.getApi().getEmbeddingModelName(),
+                    "rerank_api_uri", cfg.getApi().getRerankApiUri(),
+                    "rerank_api_key", cfg.getApi().getRerankApiKey(),
+                    "rerank_model_name", cfg.getApi().getRerankModelName()
             ));
+            data.put("prompt", _map("chat_msg", getPrompt()));
+            data.put("kb", _map(
+                    "chunk_size", cfg.getKb().getChunkSize(),
+                    "chunk_overlap", cfg.getKb().getChunkOverlap(),
+                    "top_k", cfg.getKb().getTopK(),
+                    "score_threshold", cfg.getKb().getScoreThreshold(),
+                    "rerank_enabled", cfg.getKb().isRerankEnabled(),
+                    "rerank_retrieve_n", cfg.getKb().getRerankRetrieveN()
+            ));
+            data.put("llm", _map(
+                    "temperature", cfg.getLlm().getTemperature(),
+                    "top_p", cfg.getLlm().getTopP(),
+                    "max_tokens", cfg.getLlm().getMaxTokens()
+            ));
+            data.put("faq", _map("match_threshold", cfg.getFaq().getMatchThreshold()));
+            Map<String, Object> resp = Map.of("data", data);
             HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(resp));
         } catch (Exception e) {
-            HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+            log.error("获取配置失败", e);
+            HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR, "获取配置失败: " + e.getMessage());
         }
+    }
+
+    /** null-safe Map builder from key-value pairs (allows null values, unlike Map.of) */
+    private static Map<String, Object> _map(Object... kvs) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < kvs.length; i += 2) {
+            m.put((String) kvs[i], kvs[i + 1]);
+        }
+        return m;
     }
 
     /**
@@ -143,7 +151,8 @@ public class ConfigController {
 
         } catch (Exception e) {
             log.error("更新配置失败", e);
-            HttpServer.sendJson(ctx, 500, "{\"error\":\"更新配置失败: " + e.getMessage() + "\"}");
+            String errMsg = e.getMessage() != null ? e.getMessage() : "未知错误";
+            HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR, "更新配置失败: " + errMsg);
         }
     }
 
