@@ -671,7 +671,7 @@ func (s *MySQLStore) seedDefaultAgent() error {
 		`INSERT INTO agent_def (name, description, system_prompt, vdb_ids)
 		 VALUES (?, ?, ?, ?)`,
 		"通用客服", "默认智能体，负责解答客户咨询",
-		defaultChatPrompt, "[]",
+		defaultAgentPrompt, "[]",
 	)
 	return err
 }
@@ -892,7 +892,6 @@ func (s *MySQLStore) SeedDefaultConfigs(sysName string) error {
 	entries := []struct{ key, value, desc string }{
 		{"sys.name", sysName, "系统名称"},
 		{"sys.api_auth", "true", "是否启用接口认证 (true/false)"},
-		{"prompt.chat_msg", defaultChatPrompt, "聊天提示词模板"},
 		{"kb.chunk_size", "300", "文本分片大小（字符数）"},
 		{"kb.chunk_overlap", "80", "文本分片重叠大小（字符数）"},
 		{"kb.top_k", "3", "检索返回条数"},

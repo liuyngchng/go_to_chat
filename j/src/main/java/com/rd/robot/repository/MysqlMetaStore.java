@@ -204,7 +204,7 @@ public class MysqlMetaStore implements MetaStore {
                     "INSERT INTO agent_def (name, description, system_prompt, vdb_ids) VALUES (?, ?, ?, '[]')")) {
                 ps.setString(1, "通用客服");
                 ps.setString(2, "默认智能体，负责解答客户咨询");
-                ps.setString(3, SqliteMetaStore.DEFAULT_CHAT_PROMPT);
+                ps.setString(3, SqliteMetaStore.DEFAULT_AGENT_PROMPT);
                 ps.executeUpdate();
             }
         } catch (SQLException e) {

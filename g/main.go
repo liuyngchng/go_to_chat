@@ -152,6 +152,9 @@ func main() {
 		// AI Agent 公开列表（聊天页下拉选择用）
 		authAPI.GET("/ai-agents/public", h.Agent.ListPublic)
 
+		// 系统变量列表（供创建 Agent 时参考可用变量）
+		authAPI.GET("/system-vars", h.Agent.ListSystemVars)
+
 		// 工作流公开列表（聊天页下拉选择用）
 		authAPI.GET("/workflows", h.Workflow.ListPublic)
 

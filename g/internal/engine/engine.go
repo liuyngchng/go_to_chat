@@ -88,9 +88,20 @@ func (e *Engine) ExecuteStream(
 		total := len(nodes)
 
 		// 3. 初始化变量池
+		curDate := time.Now().Format("2006-01-02")
+		curWeek := getWeekdayCN(time.Now().Weekday())
 		vars := map[string]string{
+			// 新版命名（sys. 前缀）
+			"sys.user_query": userQuery,
+			"sys.history":    FormatHistory(messages),
+			"sys.cur_date":   curDate,
+			"sys.cur_week":   curWeek,
+			"sys.kb_context": "", // 知识库检索结果，由节点执行时填充
+			// 兼容旧版变量名
 			"user_query": userQuery,
 			"history":    FormatHistory(messages),
+			"cur_date":   curDate,
+			"cur_week":   curWeek,
 		}
 		classifierOutputVar := "intent" // 默认变量名，分类器可能覆盖
 
@@ -106,6 +117,8 @@ func (e *Engine) ExecuteStream(
 				classifierOutputVar = "intent"
 			}
 			vars[classifierOutputVar] = string(intent)
+			// sys. 前缀版本（供模板引用）
+			vars["sys."+classifierOutputVar] = string(intent)
 
 			eventCh <- EngineEvent{
 				Type:  "progress",
@@ -155,26 +168,27 @@ func (e *Engine) ExecuteStream(
 			slog.Info("node input ready", "node", node.ID, "agent", agent.Name, "input_len", len(input), "input_preview", input[:min(80, len(input))])
 
 			// 知识库检索（如果 agent 绑定了 vdb_ids）
-			kbContext := ""
 			if agent.VdbIDs != "" && agent.VdbIDs != "[]" {
 				var vdbIDs []int64
 				if err := json.Unmarshal([]byte(agent.VdbIDs), &vdbIDs); err == nil && len(vdbIDs) > 0 {
 					slog.Info("kb search start", "node", node.ID, "agent", agent.Name, "vdb_ids", vdbIDs)
 					kbStart := time.Now()
+					var kbContext strings.Builder
 					for _, vdbID := range vdbIDs {
-						// 搜索每个关联的知识库
 						ctx, err := e.kbMgr.SearchInKB(userQuery, vdbID, uid, e.cfg.KB.TopK, e.cfg.KB.ScoreThreshold)
 						if err == nil && ctx != "" {
-							kbContext += ctx + "\n"
+							kbContext.WriteString(ctx)
+							kbContext.WriteString("\n")
 						}
 					}
+					vars["sys.kb_context"] = kbContext.String()
 					kbElapsed := time.Since(kbStart)
-					slog.Info("kb search done", "node", node.ID, "agent", agent.Name, "kb_context_len", len(kbContext), "duration_ms", kbElapsed.Milliseconds())
+					slog.Info("kb search done", "node", node.ID, "agent", agent.Name, "kb_context_len", len(vars["sys.kb_context"]), "duration_ms", kbElapsed.Milliseconds())
 				}
 			}
 
-			// 构建 system prompt
-			systemPrompt := buildSystemPrompt(agent.SystemPrompt, kbContext)
+			// 构建 system prompt（走模板渲染，支持 {{sys.xxx}} 变量）
+			systemPrompt := ResolveTemplate(agent.SystemPrompt, vars)
 
 			// 选择 LLM 客户端（使用 Agent 特定的参数，或默认）
 			llmClient := e.getLLMClient(agent)
@@ -276,20 +290,6 @@ func (e *Engine) getLLMClient(agent *model.AgentDef) *llm.Client {
 
 	client.SetParams(temp, topP, maxTok)
 	return client
-}
-
-// buildSystemPrompt 构建完整系统提示词
-func buildSystemPrompt(systemPrompt, kbContext string) string {
-	var b strings.Builder
-	b.WriteString(systemPrompt)
-
-	if kbContext != "" {
-		b.WriteString("\n\n参考知识库内容：\n---\n")
-		b.WriteString(kbContext)
-		b.WriteString("\n---")
-	}
-
-	return b.String()
 }
 
 // Execute 非流式执行工作流，返回最终结果

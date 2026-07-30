@@ -1,6 +1,7 @@
 package com.rd.robot.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rd.robot.engine.TemplateResolver;
 import com.rd.robot.model.*;
 import com.rd.robot.repository.MetaStore;
 import com.rd.robot.web.server.HttpServer;
@@ -25,6 +26,18 @@ public class AgentController {
 
     public AgentController(MetaStore metaStore) {
         this.metaStore = metaStore;
+    }
+
+    /**
+     * GET /api/system-vars — list available system variables for agent prompts
+     */
+    public void listSystemVars(ChannelHandlerContext ctx, FullHttpRequest req) {
+        try {
+            var vars = TemplateResolver.getSystemVars();
+            HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(Map.of("data", vars)));
+        } catch (Exception e) {
+            HttpServer.sendJson(ctx, 500, "{\"error\":\"" + e.getMessage() + "\"}");
+        }
     }
 
     /**
@@ -84,6 +97,15 @@ public class AgentController {
             String body = req.content().toString(CharsetUtil.UTF_8);
             CreateAgentRequest createReq = MAPPER.readValue(body, CreateAgentRequest.class);
 
+            // Validate system prompt variable references
+            List<String> invalid = TemplateResolver.validateTemplateVars(createReq.getSystemPrompt());
+            if (!invalid.isEmpty()) {
+                log.warn("agent system_prompt rejected: invalid variables={}", invalid);
+                HttpServer.sendJson(ctx, 400,
+                    "{\"error\":\"system_prompt 包含非法的系统变量：" + String.join("、", invalid) + "\"}");
+                return;
+            }
+
             // Serialize VdbIDs as JSON string
             String vdbIdsJson = "[]";
             if (createReq.getVdbIds() != null && !createReq.getVdbIds().isEmpty()) {
@@ -127,6 +149,15 @@ public class AgentController {
 
             String body = req.content().toString(CharsetUtil.UTF_8);
             CreateAgentRequest updateReq = MAPPER.readValue(body, CreateAgentRequest.class);
+
+            // Validate system prompt variable references
+            List<String> invalid = TemplateResolver.validateTemplateVars(updateReq.getSystemPrompt());
+            if (!invalid.isEmpty()) {
+                log.warn("agent system_prompt rejected: invalid variables={}", invalid);
+                HttpServer.sendJson(ctx, 400,
+                    "{\"error\":\"system_prompt 包含非法的系统变量：" + String.join("、", invalid) + "\"}");
+                return;
+            }
 
             String vdbIdsJson = "[]";
             if (updateReq.getVdbIds() != null && !updateReq.getVdbIds().isEmpty()) {

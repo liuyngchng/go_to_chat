@@ -66,9 +66,22 @@ public class WorkflowEngine {
                 int stepCounter = 0;
 
                 // 2. Initialize variable pool
+                String curDate = java.time.LocalDate.now().toString();
+                String curWeek = TemplateResolver.getWeekdayCN();
+
                 Map<String, String> vars = new HashMap<>();
+                // New names (sys. prefix)
+                vars.put("sys.user_query", userQuery);
+                vars.put("sys.history", TemplateResolver.formatHistory(messages));
+                vars.put("sys.cur_date", curDate);
+                vars.put("sys.cur_week", curWeek);
+                vars.put("sys.kb_context", ""); // filled per node by KB retrieval
+
+                // Legacy names (backward compatibility)
                 vars.put("user_query", userQuery);
                 vars.put("history", TemplateResolver.formatHistory(messages));
+                vars.put("cur_date", curDate);
+                vars.put("cur_week", curWeek);
 
                 // 3. Intent classification (if workflow has a classifier)
                 if (workflow.getClassifier() != null) {
@@ -78,6 +91,8 @@ public class WorkflowEngine {
                         outputVar = "intent";
                     }
                     vars.put(outputVar, intent);
+                    // sys. prefixed copy for template reference
+                    vars.put("sys." + outputVar, intent);
 
                     eventQueue.offer(new EngineEvent("progress", 0, total, "意图分类: " + intent, ""));
 
@@ -113,10 +128,10 @@ public class WorkflowEngine {
                     String input = TemplateResolver.resolve(node.getInputTemplate(), vars);
 
                     // KB retrieval (if agent has vdb_ids)
-                    String kbContext = retrieveKbContext(agent, userQuery, uid);
+                    vars.put("sys.kb_context", retrieveKbContext(agent, userQuery, uid));
 
-                    // Build system prompt
-                    String systemPrompt = buildSystemPrompt(agent.getSystemPrompt(), kbContext);
+                    // Build system prompt (via template resolution)
+                    String systemPrompt = TemplateResolver.resolve(agent.getSystemPrompt(), vars);
 
                     // Select LLM client (with agent-specific params or defaults)
                     LlmClient llmClient = getLlmClient(agent);
@@ -218,13 +233,6 @@ public class WorkflowEngine {
             client.setParams(temp, topP, maxTok);
         }
         return client;
-    }
-
-    private String buildSystemPrompt(String systemPrompt, String kbContext) {
-        if (kbContext == null || kbContext.isEmpty()) {
-            return systemPrompt;
-        }
-        return systemPrompt + "\n\n参考知识库内容：\n---\n" + kbContext + "\n---";
     }
 
     private String retrieveKbContext(AgentDef agent, String userQuery, String uid) {

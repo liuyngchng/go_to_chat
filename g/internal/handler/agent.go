@@ -2,9 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"kb-chat-flow/internal/engine"
 	"kb-chat-flow/internal/model"
 	"kb-chat-flow/internal/store"
 
@@ -19,6 +23,11 @@ type AgentHandler struct {
 // NewAgentHandler 创建 Agent 处理器
 func NewAgentHandler(metaStore store.MetaStore) *AgentHandler {
 	return &AgentHandler{store: metaStore}
+}
+
+// ListSystemVars 返回系统变量列表 GET /api/system-vars
+func (h *AgentHandler) ListSystemVars(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"data": engine.GetSystemVars()})
 }
 
 // ListPublic 返回公开的 Agent 列表（仅 id + name，聊天页下拉用）
@@ -77,11 +86,25 @@ func (h *AgentHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": agent})
 }
 
+// validateSystemPrompt 校验提示词中的系统变量引用
+func validateSystemPrompt(prompt string) error {
+	if invalid := engine.ValidateTemplateVars(prompt); len(invalid) > 0 {
+		slog.Warn("agent system_prompt rejected: invalid variables", "invalid", invalid)
+		return fmt.Errorf("system_prompt 包含非法的系统变量：%s", strings.Join(invalid, "、"))
+	}
+	return nil
+}
+
 // Create 创建 Agent
 func (h *AgentHandler) Create(c *gin.Context) {
 	var req model.CreateAgentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+
+	if err := validateSystemPrompt(req.SystemPrompt); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -134,6 +157,11 @@ func (h *AgentHandler) Update(c *gin.Context) {
 	var req model.CreateAgentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+
+	if err := validateSystemPrompt(req.SystemPrompt); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 

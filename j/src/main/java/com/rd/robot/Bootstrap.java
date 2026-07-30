@@ -121,6 +121,7 @@ public class Bootstrap {
         router.addRoute("GET", "/api/user/call-logs", userController::myCallLogs);
 
         // -- AI Agent API --
+        router.addRoute("GET", "/api/system-vars", agentController::listSystemVars);
         router.addRoute("GET", "/api/ai-agents/public", agentController::listPublic);
         router.addRoute("GET", "/api/ai-agents", agentController::list);
         router.addRoute("POST", "/api/ai-agents", agentController::create);

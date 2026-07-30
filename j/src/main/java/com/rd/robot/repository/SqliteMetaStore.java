@@ -200,7 +200,7 @@ public class SqliteMetaStore implements MetaStore {
                     "INSERT INTO agent_def (name, description, system_prompt, vdb_ids) VALUES (?, ?, ?, '[]')")) {
                 ps.setString(1, "通用客服");
                 ps.setString(2, "默认智能体，负责解答客户咨询");
-                ps.setString(3, DEFAULT_CHAT_PROMPT);
+                ps.setString(3, DEFAULT_AGENT_PROMPT);
                 ps.executeUpdate();
             }
         } catch (SQLException e) {
@@ -1223,6 +1223,30 @@ public class SqliteMetaStore implements MetaStore {
 
     private record BuiltinUser(String userName, int role, String note) {}
 
+    /**
+     * Default agent system prompt for workflow engine (uses {{sys.xxx}} variable syntax).
+     */
+    public static final String DEFAULT_AGENT_PROMPT = """
+        你是专业的对话机器人，负责解答客户咨询。你必须基于以下知识库信息回答用户问题。
+        如果知识库中没有相关信息，请引导用户转接人工客服。
+
+        今日日期：{{sys.cur_date}}（星期{{sys.cur_week}}）
+
+        知识库内容：
+        ---
+        {{sys.kb_context}}
+        ---
+
+        历史对话：
+        {{sys.history}}
+
+        用户问题：{{sys.user_query}}
+
+        请用亲切、专业的中文回答：""";
+
+    /**
+     * Default chat prompt for simple (non-workflow) chat mode (uses {xxx} syntax).
+     */
     public static final String DEFAULT_CHAT_PROMPT = """
         你是专业的对话机器人，负责解答客户咨询。你必须基于以下知识库信息回答用户问题。
         如果知识库中没有相关信息，请引导用户转接人工客服。
@@ -1243,7 +1267,6 @@ public class SqliteMetaStore implements MetaStore {
 
     static final DefaultConfig[] DEFAULT_CONFIGS = {
         new DefaultConfig("sys.api_auth", "true", "是否启用接口认证 (true/false)"),
-        new DefaultConfig("prompt.chat_msg", DEFAULT_CHAT_PROMPT, "聊天提示词模板"),
         new DefaultConfig("kb.chunk_size", "300", "文本分片大小（字符数）"),
         new DefaultConfig("kb.chunk_overlap", "80", "文本分片重叠大小（字符数）"),
         new DefaultConfig("kb.top_k", "3", "检索返回条数"),
