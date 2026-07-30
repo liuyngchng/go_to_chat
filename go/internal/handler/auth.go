@@ -13,14 +13,14 @@ import (
 	"sync"
 	"time"
 
-	"go_to_chat/internal/model"
-	"go_to_chat/internal/store"
+	"kb-chat-flow/internal/model"
+	"kb-chat-flow/internal/store"
 
 	"github.com/gin-gonic/gin"
 )
 
 // HMAC 签名密钥（生产环境应从配置读取）
-var tokenSecret = []byte("go_to_chat_secret_2026")
+var tokenSecret = []byte("kb-chat-flow_secret_2026")
 
 // token 有效期 2 小时
 const tokenTTL = 2 * time.Hour

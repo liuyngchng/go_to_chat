@@ -1,9 +1,9 @@
 #!/bin/bash
 # ============================================================
-# build.sh — 构建 go_to_chat (Java版) Docker 镜像
+# build.sh — 构建 kb-chat-flow (Java版) Docker 镜像
 #
 # 用法:
-#   ./build.sh                  # 默认 tag: go_to_chat:latest
+#   ./build.sh                  # 默认 tag: kb-chat-flow:latest
 #   ./build.sh v1.0.0           # 指定版本
 #   ./build.sh v1.0.0 --push    # 构建并推送
 #
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 # ---- 配置 ----
-IMAGE_NAME="${IMAGE_NAME:-go_to_chat}"
+IMAGE_NAME="${IMAGE_NAME:-kb-chat-flow}"
 REGISTRY="${REGISTRY:-}"
 DOCKERFILE="${DOCKERFILE:-Dockerfile}"
 
@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --push     构建后推送到仓库"
             echo ""
             echo "环境变量:"
-            echo "  IMAGE_NAME   镜像名，默认 go_to_chat"
+            echo "  IMAGE_NAME   镜像名，默认 kb-chat-flow"
             echo "  REGISTRY     仓库地址，如 registry.cn-hangzhou.aliyuncs.com/my-ns"
             exit 0
             ;;
@@ -88,7 +88,7 @@ info "========== 镜像信息 =========="
 docker images "$FULL_IMAGE" --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
 echo ""
 info "启动命令:"
-echo "  docker run -d --name go_to_chat -p 19007:19007 \\"
+echo "  docker run -d --name kb-chat-flow -p 19007:19007 \\"
 echo "    -v \$(pwd)/cfg.yml:/opt/csm/cfg.yml \\"
 echo "    -v \$(pwd)/upload_doc:/opt/csm/upload_doc \\"
 echo "    -v \$(pwd)/vdb:/opt/csm/vdb \\"

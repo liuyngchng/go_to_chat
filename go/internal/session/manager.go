@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"go_to_chat/internal/model"
+	"kb-chat-flow/internal/model"
 )
 
 const (

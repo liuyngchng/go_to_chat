@@ -1,4 +1,4 @@
-module go_to_chat
+module kb-chat-flow
 
 go 1.25.0
 

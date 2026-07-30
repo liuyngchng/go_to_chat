@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"go_to_chat/internal/model"
+	"kb-chat-flow/internal/model"
 
 	_ "github.com/go-sql-driver/mysql"
 )

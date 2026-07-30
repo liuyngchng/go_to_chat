@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"go_to_chat/internal/embedding"
-	"go_to_chat/internal/model"
-	"go_to_chat/internal/store"
+	"kb-chat-flow/internal/embedding"
+	"kb-chat-flow/internal/model"
+	"kb-chat-flow/internal/store"
 
 	"github.com/gin-gonic/gin"
 )

@@ -1,6 +1,6 @@
 package vdb
 
-import "go_to_chat/internal/model"
+import "kb-chat-flow/internal/model"
 
 // VectorsDB 本地向量数据库文件路径
 const VectorsDB = "./vdb/vectors.db"

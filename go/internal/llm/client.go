@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"go_to_chat/internal/model"
+	"kb-chat-flow/internal/model"
 )
 
 // 高并发 HTTP 连接池（流式 LLM 调用需要更长超时）

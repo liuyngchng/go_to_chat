@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"go_to_chat/internal/llm"
-	"go_to_chat/internal/model"
+	"kb-chat-flow/internal/llm"
+	"kb-chat-flow/internal/model"
 )
 
 // classify 意图分类：先走关键词匹配，命中直接返回；否则走 LLM 分类。

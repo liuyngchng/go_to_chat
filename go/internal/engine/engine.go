@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"go_to_chat/internal/kb"
-	"go_to_chat/internal/llm"
-	"go_to_chat/internal/model"
-	"go_to_chat/internal/store"
+	"kb-chat-flow/internal/kb"
+	"kb-chat-flow/internal/llm"
+	"kb-chat-flow/internal/model"
+	"kb-chat-flow/internal/store"
 )
 
 // EngineEvent 工作流执行事件

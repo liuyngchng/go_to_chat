@@ -11,12 +11,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"go_to_chat/internal/config"
-	"go_to_chat/internal/handler"
-	"go_to_chat/internal/kb"
-	"go_to_chat/internal/logger"
-	"go_to_chat/internal/session"
-	"go_to_chat/internal/store"
+	"kb-chat-flow/internal/config"
+	"kb-chat-flow/internal/handler"
+	"kb-chat-flow/internal/kb"
+	"kb-chat-flow/internal/logger"
+	"kb-chat-flow/internal/session"
+	"kb-chat-flow/internal/store"
 
 	"github.com/gin-gonic/gin"
 )

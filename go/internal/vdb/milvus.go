@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"go_to_chat/internal/model"
+	"kb-chat-flow/internal/model"
 
 	"github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"

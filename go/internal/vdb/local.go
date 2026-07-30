@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync"
 
-	"go_to_chat/internal/model"
+	"kb-chat-flow/internal/model"
 
 	_ "modernc.org/sqlite"
 )

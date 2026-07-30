@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"go_to_chat/internal/model"
+	"kb-chat-flow/internal/model"
 )
 
 // MetaStore 元数据存储接口，支持 SQLite 和 MySQL 两种实现

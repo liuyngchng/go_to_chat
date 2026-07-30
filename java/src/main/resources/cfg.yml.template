@@ -1,4 +1,4 @@
-# go_to_chat AI客服系统配置文件
+# kb-chat-flow AI客服系统配置文件
 # 部署时复制为 cfg.yml 并根据实际环境修改：
 #   cp cfg.yml.template cfg.yml
 server:
@@ -22,9 +22,9 @@ store:
 mysql:
   # DSN 格式: user:password@tcp(host:port)/dbname?charset=utf8mb4&parseTime=True&loc=Local
   # 示例:
-  #   dsn: "root:123456@tcp(127.0.0.1:3306)/go_to_chat?charset=utf8mb4&parseTime=True&loc=Local"
+  #   dsn: "root:123456@tcp(127.0.0.1:3306)/kb-chat-flow?charset=utf8mb4&parseTime=True&loc=Local"
   # 首次启动前需先在 MySQL 中创建数据库:
-  #   CREATE DATABASE go_to_chat CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  #   CREATE DATABASE kb-chat-flow CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
   dsn: ""
 
 # ============================================================

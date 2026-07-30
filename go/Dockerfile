@@ -33,7 +33,7 @@ COPY main.go ./
 COPY internal/ ./internal/
 
 # 纯静态编译
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o go_to_chat .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o kb-chat-flow .
 
 # ============================================================
 # Stage 2: Alpine 轻量运行时
@@ -47,7 +47,7 @@ RUN apk add --no-cache ca-certificates tzdata && \
 WORKDIR /opt/csm
 
 # 从构建阶段拷贝二进制
-COPY --from=builder /build/go_to_chat .
+COPY --from=builder /build/kb-chat-flow .
 
 # 拷贝静态资源和配置模板
 COPY web/ ./web/
@@ -58,4 +58,4 @@ RUN mkdir -p upload_doc vdb
 
 EXPOSE 19007
 
-CMD ["./go_to_chat"]
+CMD ["./kb-chat-flow"]

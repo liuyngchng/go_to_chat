@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 
-	"go_to_chat/internal/model"
+	"kb-chat-flow/internal/model"
 
 	"github.com/gin-gonic/gin"
 )

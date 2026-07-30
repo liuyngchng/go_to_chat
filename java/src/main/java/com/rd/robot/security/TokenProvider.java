@@ -16,12 +16,11 @@ import java.util.HexFormat;
 /**
  * HMAC-SHA256 token authentication.
  * Token format: base64(user_name|role|expiry_timestamp|hmac_signature)
- * Compatible with the Go implementation.
  */
 public class TokenProvider {
 
     private static final Logger log = LoggerFactory.getLogger(TokenProvider.class);
-    private static final byte[] SECRET = "go_to_chat_secret_2026".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] SECRET = "kb-chat-flow_secret_2026".getBytes(StandardCharsets.UTF_8);
     private static final long TOKEN_TTL_SECONDS = 2 * 3600; // 2 hours
     private static final long API_TOKEN_TTL_SECONDS = 2 * 3600; // 2 hours
 

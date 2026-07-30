@@ -13,11 +13,11 @@ import (
 
 	"github.com/schollz/progressbar/v3"
 
-	"go_to_chat/internal/embedding"
-	"go_to_chat/internal/model"
-	"go_to_chat/internal/rerank"
-	"go_to_chat/internal/store"
-	"go_to_chat/internal/vdb"
+	"kb-chat-flow/internal/embedding"
+	"kb-chat-flow/internal/model"
+	"kb-chat-flow/internal/rerank"
+	"kb-chat-flow/internal/store"
+	"kb-chat-flow/internal/vdb"
 )
 
 const (

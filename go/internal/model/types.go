@@ -96,7 +96,7 @@ type QdrantConfig struct {
 
 // MySQLConfig MySQL 数据库配置
 type MySQLConfig struct {
-	DSN string `yaml:"dsn"` // 例如 "user:password@tcp(127.0.0.1:3306)/go_to_chat?charset=utf8mb4&parseTime=True&loc=Local"
+	DSN string `yaml:"dsn"` // 例如 "user:password@tcp(127.0.0.1:3306)/kb-chat-flow?charset=utf8mb4&parseTime=True&loc=Local"
 }
 
 // ============================================================
