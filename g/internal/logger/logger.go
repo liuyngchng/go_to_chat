@@ -93,8 +93,8 @@ func Init(debug bool) error {
 	// 按小时滚动的日志 writer
 	// 生成文件: app.2026-07-30-14.log, app.log 为当前文件的软链接
 	fileWriter, err := rotatelogs.New(
-		"app.%Y-%m-%d-%H.log",
-		rotatelogs.WithLinkName("app.log"),
+		"log/app.%Y-%m-%d-%H.log",
+		rotatelogs.WithLinkName("log/app.log"),
 		rotatelogs.WithRotationTime(time.Hour),
 		rotatelogs.WithMaxAge(7*24*time.Hour), // 保留 7 天
 	)
