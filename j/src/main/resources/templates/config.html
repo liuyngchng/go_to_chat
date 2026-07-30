@@ -384,14 +384,14 @@
             <!-- 左侧导航 -->
             <nav class="cfg-sidebar">
                 <div class="cfg-tab active" data-tab="kbmgmt">
-                    <i class="fas fa-database"></i> 知识库管理
+                    <i class="fas fa-database"></i> 知识库
                 </div>
                 <div class="cfg-sidebar-divider"></div>
                 <div class="cfg-tab" data-tab="kb">
-                    <i class="fas fa-book"></i> 文本处理配置
+                    <i class="fas fa-book"></i> 文本处理
                 </div>
                 <div class="cfg-tab" data-tab="llm">
-                    <i class="fas fa-robot"></i> 大模型配置
+                    <i class="fas fa-robot"></i> 模型
                 </div>
                 <div class="cfg-tab" data-tab="sys">
                     <i class="fas fa-sliders-h"></i> 系统配置
@@ -405,21 +405,21 @@
                 </div>
                 <div class="cfg-sidebar-divider"></div>
                 <div class="cfg-tab" data-tab="ai-agents">
-                    <i class="fas fa-robot"></i> AI Agent 管理
+                    <i class="fas fa-robot"></i> Agent
                 </div>
                 <div class="cfg-sidebar-divider"></div>
                 <div class="cfg-tab" data-tab="faq">
-                    <i class="fas fa-question-circle"></i> FAQ 管理
+                    <i class="fas fa-question-circle"></i> FAQ
                 </div>
             </nav>
 
             <!-- 右侧内容区 -->
             <div class="cfg-content">
-                <!-- 知识库管理（iframe 嵌入） -->
+                <!-- 知识库（iframe 嵌入） -->
                 <div class="cfg-section active" id="section-kbmgmt">
                     <div class="cfg-iframe-wrap">
                         <div class="cfg-iframe-header">
-                            <i class="fas fa-database"></i> 知识库管理
+                            <i class="fas fa-database"></i> 知识库
                             <a href="/vdb/idx?t={{token}}" target="_blank">
                                 <i class="fas fa-external-link-alt"></i> 新窗口打开
                             </a>
@@ -430,9 +430,9 @@
                     </div>
                 </div>
 
-                <!-- 文本处理配置 -->
+                <!-- 文本处理 -->
                 <div class="cfg-section" id="section-kb">
-                    <h2><i class="fas fa-book"></i> 文本处理配置</h2>
+                    <h2><i class="fas fa-book"></i> 文本处理</h2>
 
                     <h3 style="font-size:1rem;color:#4b6cb7;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #eef1f6;">
                         <i class="fas fa-sliders-h"></i> 检索与分片参数
@@ -481,7 +481,7 @@
 
                     <div class="cfg-actions">
                         <button class="cfg-btn cfg-btn-save" onclick="saveKBConfig()">
-                            <i class="fas fa-check"></i> 保存知识库参数
+                            <i class="fas fa-check"></i> 保存
                         </button>
                         <button class="cfg-btn cfg-btn-reset" onclick="loadConfig()">
                             <i class="fas fa-undo"></i> 重置
@@ -489,9 +489,9 @@
                     </div>
                 </div>
 
-                <!-- 大模型配置 -->
+                <!-- 模型 -->
                 <div class="cfg-section" id="section-llm">
-                    <h2><i class="fas fa-robot"></i> 大模型配置</h2>
+                    <h2><i class="fas fa-robot"></i> 模型</h2>
 
                     <h3 style="font-size:1rem;color:#4b6cb7;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #eef1f6;">
                         <i class="fas fa-comments"></i> LLM 对话模型
@@ -575,7 +575,7 @@
 
                     <div class="cfg-actions">
                         <button class="cfg-btn cfg-btn-save" onclick="saveLLMConfig()">
-                            <i class="fas fa-check"></i> 保存大模型配置
+                            <i class="fas fa-check"></i> 保存
                         </button>
                         <button class="cfg-btn cfg-btn-reset" onclick="loadConfig()">
                             <i class="fas fa-undo"></i> 重置
@@ -610,7 +610,7 @@
 
                     <div class="cfg-actions">
                         <button class="cfg-btn cfg-btn-save" onclick="saveSysConfig()">
-                            <i class="fas fa-check"></i> 保存系统配置
+                            <i class="fas fa-check"></i> 保存
                         </button>
                         <button class="cfg-btn cfg-btn-reset" onclick="loadConfig()">
                             <i class="fas fa-undo"></i> 重置
@@ -683,9 +683,9 @@
                     </div>
                 </div>
 
-                <!-- AI Agent 管理 -->
+                <!-- Agent -->
                 <div class="cfg-section" id="section-ai-agents">
-                    <h2><i class="fas fa-robot"></i> AI Agent 管理</h2>
+                    <h2><i class="fas fa-robot"></i> Agent</h2>
 
                     <div style="margin-bottom:16px;">
                         <button class="cfg-btn cfg-btn-save" onclick="showAgentModal()">
@@ -747,9 +747,9 @@
                     </div>
                 </div>
 
-                <!-- FAQ 管理 -->
+                <!-- FAQ -->
                 <div class="cfg-section" id="section-faq">
-                    <h2><i class="fas fa-question-circle"></i> FAQ 管理</h2>
+                    <h2><i class="fas fa-question-circle"></i> FAQ</h2>
 
                     <!-- 工具栏卡片 -->
                     <div style="background:#fafbfc;border:1px solid #e0e3e8;border-radius:10px;padding:20px 24px;margin-bottom:24px;">
@@ -761,7 +761,7 @@
                                        style="width:100%;padding:10px 14px;border:2px solid #e0e3e8;border-radius:8px;font-size:0.9rem;">
                             </div>
                             <button class="cfg-btn cfg-btn-save" style="padding:10px 22px;" onclick="saveFaqConfig()">
-                                <i class="fas fa-check"></i> 保存阈值
+                                <i class="fas fa-check"></i> 保存
                             </button>
                         </div>
 
@@ -910,7 +910,7 @@
                 document.getElementById('sys_api_auth').checked = apiAuth;
                 document.getElementById('apiAuthLabel').textContent = apiAuth ? '已启用' : '未启用';
 
-                // 大模型配置
+                // 模型配置
                 document.getElementById('llm_api_uri').value = data.api.llm_api_uri || '';
                 document.getElementById('llm_api_key').value = data.api.llm_api_key || '';
                 document.getElementById('llm_model_name').value = data.api.llm_model_name || '';
@@ -946,7 +946,7 @@
         }
 
         // ============================================================
-        // 保存大模型配置
+        // 保存模型配置
         // ============================================================
         async function saveLLMConfig() {
             const payload = {
@@ -979,7 +979,7 @@
                 });
                 const json = await resp.json();
                 if (json.status === 'ok') {
-                    showToast('大模型配置已保存', 'success');
+                    showToast('模型配置已保存', 'success');
                 } else {
                     showToast('保存失败: ' + (json.error || '未知错误'), 'error');
                 }
@@ -1078,7 +1078,7 @@
         }
 
         // ============================================================
-        // AI Agent 管理
+        // Agent 管理
         // ============================================================
 
         async function loadAiAgents() {
@@ -1333,7 +1333,7 @@
         function escHtml2(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
         // ============================================================
-        // FAQ 管理
+        // FAQ
         // ============================================================
 
         async function loadFaqList() {
