@@ -380,14 +380,25 @@ type WorkflowNode struct {
 	OutputVar     string `json:"output_var"`     // 本节点输出变量名
 	OrderIndex    int    `json:"order_index"`    // 执行顺序，0-based
 	IsFinal       bool   `json:"is_final"`       // 是否最终输出节点
-	Condition     string `json:"condition,omitempty"` // 分类路由条件：匹配 Classifier 输出的 category name，空 = 无条件执行
+	Condition     IntentType `json:"condition,omitempty"` // 分类路由条件：匹配 Classifier 输出的 category name，空 = 无条件执行
 }
+
+// IntentType 意图分类枚举类型
+type IntentType string
+
+const (
+	IntentEmergency IntentType = "emergency"
+	IntentBilling   IntentType = "billing"
+	IntentBusiness  IntentType = "business"
+	IntentRepair    IntentType = "repair"
+	IntentFaq       IntentType = "faq"
+)
 
 // IntentCategory 意图分类中的一个类别
 type IntentCategory struct {
-	Name        string   `json:"name"`        // 类别标识，如 "emergency"
-	Description string   `json:"description"` // 类别描述，如 "燃气泄漏等紧急情况"
-	Keywords    []string `json:"keywords"`    // 关键词列表，如 ["漏气","燃气味","报警"]
+	Name        IntentType `json:"name"`        // 类别标识，如 "emergency"
+	Description string     `json:"description"` // 类别描述，如 "燃气泄漏等紧急情况"
+	Keywords    []string   `json:"keywords"`    // 关键词列表，如 ["漏气","燃气味","报警"]
 }
 
 // ClassifierDef 意图分类器定义

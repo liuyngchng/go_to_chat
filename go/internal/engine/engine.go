@@ -86,21 +86,22 @@ func (e *Engine) ExecuteStream(
 			"user_query": userQuery,
 			"history":    FormatHistory(messages),
 		}
+		classifierOutputVar := "intent" // 默认变量名，分类器可能覆盖
 
 		// 4. 意图分类（如果工作流配置了 Classifier）
 		if workflow.Classifier != nil {
 			intent := classify(workflow.Classifier, userQuery, e.baseLLM)
-			outputVar := workflow.Classifier.OutputVar
-			if outputVar == "" {
-				outputVar = "intent"
+			classifierOutputVar = workflow.Classifier.OutputVar
+			if classifierOutputVar == "" {
+				classifierOutputVar = "intent"
 			}
-			vars[outputVar] = intent
+			vars[classifierOutputVar] = string(intent)
 
 			eventCh <- EngineEvent{
 				Type:  "progress",
 				Step:  0,
 				Total: total,
-				Agent: "意图分类: " + intent,
+				Agent: "意图分类: " + string(intent),
 			}
 
 			slog.Info("workflow classify", "workflow", workflow.Name, "intent", intent, "query", userQuery[:min(50, len(userQuery))])
@@ -109,8 +110,10 @@ func (e *Engine) ExecuteStream(
 		// 5. 顺序执行每个节点（跳过 Condition 不匹配的）
 		for i, node := range nodes {
 			// 条件路由：有 Condition 但不匹配 → 跳过
-			if node.Condition != "" && vars["intent"] != node.Condition {
-				continue
+			if node.Condition != "" {
+				if model.IntentType(vars[classifierOutputVar]) != node.Condition {
+					continue
+				}
 			}
 			// 加载 Agent
 			agent, err := e.store.GetAgent(node.AgentID)

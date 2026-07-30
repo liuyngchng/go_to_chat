@@ -11,7 +11,7 @@ import (
 
 // classify 意图分类：先走关键词匹配，命中直接返回；否则走 LLM 分类。
 // 返回匹配到的 category name，如果全都没命中则返回空串。
-func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client) string {
+func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client) model.IntentType {
 	if cfg == nil || len(cfg.Categories) == 0 {
 		return ""
 	}
@@ -39,11 +39,9 @@ func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client)
 }
 
 // matchKeyword 用关键词字典做匹配，返回命中的 category name。
-// 命中规则：query 中包含该 category 的任意一个 keyword 即视为命中。
-// 多个 category 同时命中时，取 keywords 列表最长的（更具体的类别通常有更多关键词）。
-func matchKeyword(query string, categories []model.IntentCategory) string {
+func matchKeyword(query string, categories []model.IntentCategory) model.IntentType {
 	query = strings.ToLower(query)
-	var bestMatch string
+	var bestMatch model.IntentType
 	var bestLen int
 
 	for _, cat := range categories {
@@ -62,7 +60,7 @@ func matchKeyword(query string, categories []model.IntentCategory) string {
 }
 
 // llmClassify 用 LLM 做意图分类，要求模型输出类别名。
-func llmClassify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client) string {
+func llmClassify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client) model.IntentType {
 	systemPrompt := buildClassifierPrompt(cfg)
 	userMessage := fmt.Sprintf("用户输入：%s\n\n请输出最匹配的类别名称：", userQuery)
 
@@ -78,12 +76,12 @@ func llmClassify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Clie
 
 	// 校验是否在已知类别列表中
 	for _, cat := range cfg.Categories {
-		if strings.EqualFold(name, cat.Name) {
+		if strings.EqualFold(name, string(cat.Name)) {
 			slog.Info("classifier LLM matched", "intent", cat.Name)
 			return cat.Name
 		}
 		// 检查类别名是否包含在 LLM 输出中（模糊匹配）
-		if strings.Contains(strings.ToLower(result), strings.ToLower(cat.Name)) {
+		if strings.Contains(strings.ToLower(result), strings.ToLower(string(cat.Name))) {
 			slog.Info("classifier LLM fuzzy matched", "intent", cat.Name)
 			return cat.Name
 		}
