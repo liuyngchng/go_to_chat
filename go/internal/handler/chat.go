@@ -173,9 +173,7 @@ func (h *ChatHandler) chatWithWorkflow(c *gin.Context, req *model.ChatRequest, u
 	flusher.Flush()
 
 	// 执行工作流
-	//eventCh := h.engine.ExecuteStream(req.WorkflowID, req.Msg, uid, historyMsgs)
-	// 执行硬编码工作流（忽略 req.WorkflowID，走预设路由和 agent_def）
-	eventCh := h.engine.HardcodedWorkflow(req.Msg, uid, historyMsgs)
+	eventCh := h.engine.ExecuteStream(req.WorkflowID, req.Msg, uid, historyMsgs)
 
 	var fullResponse strings.Builder
 	for evt := range eventCh {
