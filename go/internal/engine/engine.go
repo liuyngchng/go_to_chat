@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"go_to_chat/internal/kb"
 	"go_to_chat/internal/llm"
@@ -65,17 +66,22 @@ func (e *Engine) ExecuteStream(
 		// 1. 加载工作流
 		workflow, err := e.store.GetWorkflow(workflowID)
 		if err != nil {
+			slog.Error("load workflow failed", "workflow_id", workflowID, "error", err)
 			eventCh <- EngineEvent{Type: "error", Content: "加载工作流失败: " + err.Error(), Error: err}
 			return
 		}
 		if workflow == nil {
+			slog.Error("workflow not found", "workflow_id", workflowID)
 			eventCh <- EngineEvent{Type: "error", Content: "工作流不存在", Error: fmt.Errorf("workflow %d not found", workflowID)}
 			return
 		}
 		if len(workflow.Nodes) == 0 {
+			slog.Error("workflow has no nodes", "workflow", workflow.Name)
 			eventCh <- EngineEvent{Type: "error", Content: "工作流没有节点", Error: fmt.Errorf("empty workflow")}
 			return
 		}
+
+		slog.Info("workflow loaded", "workflow", workflow.Name, "id", workflowID, "nodes", len(workflow.Nodes))
 
 		// 2. 排序节点（按 OrderIndex）
 		nodes := workflow.Nodes
@@ -90,7 +96,11 @@ func (e *Engine) ExecuteStream(
 
 		// 4. 意图分类（如果工作流配置了 Classifier）
 		if workflow.Classifier != nil {
+			slog.Info("classifier start", "workflow", workflow.Name)
+			classifyStart := time.Now()
 			intent := classify(workflow.Classifier, userQuery, e.baseLLM)
+			classifyElapsed := time.Since(classifyStart)
+
 			classifierOutputVar = workflow.Classifier.OutputVar
 			if classifierOutputVar == "" {
 				classifierOutputVar = "intent"
@@ -104,20 +114,24 @@ func (e *Engine) ExecuteStream(
 				Agent: "意图分类: " + string(intent),
 			}
 
-			slog.Info("workflow classify", "workflow", workflow.Name, "intent", intent, "query", userQuery[:min(50, len(userQuery))])
+			slog.Info("classifier done", "workflow", workflow.Name, "intent", intent, "duration_ms", classifyElapsed.Milliseconds(), "query", userQuery[:min(50, len(userQuery))])
 		}
 
 		// 5. 顺序执行每个节点（跳过 Condition 不匹配的）
+		slog.Info("workflow nodes start", "workflow", workflow.Name, "total_nodes", total, "classifier_result", vars[classifierOutputVar])
 		for i, node := range nodes {
 			// 条件路由：有 Condition 但不匹配 → 跳过
 			if node.Condition != "" {
 				if model.IntentType(vars[classifierOutputVar]) != node.Condition {
+					slog.Info("skip node by condition", "workflow", workflow.Name, "node", node.ID, "agent_name", node.AgentName, "condition", node.Condition, "current_intent", vars[classifierOutputVar])
 					continue
 				}
 			}
+
 			// 加载 Agent
 			agent, err := e.store.GetAgent(node.AgentID)
 			if err != nil || agent == nil {
+				slog.Error("agent not found", "node", node.ID, "agent_id", node.AgentID, "error", err)
 				eventCh <- EngineEvent{
 					Type:    "error",
 					Content: fmt.Sprintf("节点 %s 引用的智能体 (ID: %d) 不存在", node.ID, node.AgentID),
@@ -134,16 +148,19 @@ func (e *Engine) ExecuteStream(
 				Agent: agent.Name,
 			}
 
-			slog.Info("workflow step", "workflow", workflow.Name, "step", i+1, "agent", agent.Name)
+			slog.Info("node start", "workflow", workflow.Name, "step", i+1, "total", total, "node", node.ID, "agent", agent.Name, "is_final", node.IsFinal)
 
 			// 渲染输入模板
 			input := ResolveTemplate(node.InputTemplate, vars)
+			slog.Info("node input ready", "node", node.ID, "agent", agent.Name, "input_len", len(input), "input_preview", input[:min(80, len(input))])
 
 			// 知识库检索（如果 agent 绑定了 vdb_ids）
 			kbContext := ""
 			if agent.VdbIDs != "" && agent.VdbIDs != "[]" {
 				var vdbIDs []int64
 				if err := json.Unmarshal([]byte(agent.VdbIDs), &vdbIDs); err == nil && len(vdbIDs) > 0 {
+					slog.Info("kb search start", "node", node.ID, "agent", agent.Name, "vdb_ids", vdbIDs)
+					kbStart := time.Now()
 					for _, vdbID := range vdbIDs {
 						// 搜索每个关联的知识库
 						ctx, err := e.kbMgr.SearchInKB(userQuery, vdbID, uid, e.cfg.KB.TopK, e.cfg.KB.ScoreThreshold)
@@ -151,6 +168,8 @@ func (e *Engine) ExecuteStream(
 							kbContext += ctx + "\n"
 						}
 					}
+					kbElapsed := time.Since(kbStart)
+					slog.Info("kb search done", "node", node.ID, "agent", agent.Name, "kb_context_len", len(kbContext), "duration_ms", kbElapsed.Milliseconds())
 				}
 			}
 
@@ -159,12 +178,17 @@ func (e *Engine) ExecuteStream(
 
 			// 选择 LLM 客户端（使用 Agent 特定的参数，或默认）
 			llmClient := e.getLLMClient(agent)
+			slog.Info("llm call start", "node", node.ID, "agent", agent.Name, "model", llmClient.ModelName, "system_prompt_len", len(systemPrompt))
+
+			llmStart := time.Now()
 
 			if node.IsFinal || i == total-1 {
 				// 最终节点：流式输出
 				chunkCh, errCh := llmClient.ChatStream(systemPrompt, input)
 
+				totalChunks := 0
 				for chunk := range chunkCh {
+					totalChunks++
 					eventCh <- EngineEvent{
 						Type:    "chunk",
 						Step:    i + 1,
@@ -178,6 +202,7 @@ func (e *Engine) ExecuteStream(
 				select {
 				case err := <-errCh:
 					if err != nil {
+						slog.Error("node stream error", "node", node.ID, "agent", agent.Name, "error", err)
 						eventCh <- EngineEvent{
 							Type:    "chunk",
 							Step:    i + 1,
@@ -188,12 +213,23 @@ func (e *Engine) ExecuteStream(
 					}
 				default:
 				}
+
+				llmElapsed := time.Since(llmStart)
+				slog.Info("node done", "node", node.ID, "agent", agent.Name, "type", "stream", "duration_ms", llmElapsed.Milliseconds(), "chunks", totalChunks)
 			} else {
 				// 非最终节点：同步调用
 				fullOutput, err := llmClient.Chat(systemPrompt, input)
+				llmElapsed := time.Since(llmStart)
+
 				if err != nil {
-					slog.Warn("workflow node error", "node", node.ID, "agent", agent.Name, "error", err)
+					slog.Error("node error", "node", node.ID, "agent", agent.Name, "error", err, "duration_ms", llmElapsed.Milliseconds())
 					fullOutput = fmt.Sprintf("[错误] %v", err)
+				} else {
+					outputPreview := fullOutput
+					if len(outputPreview) > 80 {
+						outputPreview = outputPreview[:80]
+					}
+					slog.Info("node done", "node", node.ID, "agent", agent.Name, "type", "sync", "duration_ms", llmElapsed.Milliseconds(), "output_len", len(fullOutput), "output_preview", outputPreview)
 				}
 
 				// 存储输出到变量池（供下游引用）
@@ -204,6 +240,7 @@ func (e *Engine) ExecuteStream(
 		}
 
 		// 发送完成事件
+		slog.Info("workflow nodes done", "workflow", workflow.Name, "total_nodes", total)
 		eventCh <- EngineEvent{Type: "done", Total: total}
 	}()
 

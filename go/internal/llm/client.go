@@ -103,6 +103,7 @@ func (c *Client) ChatStream(systemPrompt, userMessage string) (<-chan string, <-
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
 
+		slog.Info("llm stream request", "model", c.ModelName, "url", url, "input_tokens", len(systemPrompt)+len(userMessage))
 		resp, err := c.httpCli.Do(req)
 		if err != nil {
 			errCh <- fmt.Errorf("请求 LLM 失败: %w", err)
@@ -112,12 +113,16 @@ func (c *Client) ChatStream(systemPrompt, userMessage string) (<-chan string, <-
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			slog.Error("llm stream response error", "status", resp.StatusCode, "body", string(body))
 			errCh <- fmt.Errorf("LLM API 返回错误 %d: %s", resp.StatusCode, string(body))
 			return
 		}
 
+		slog.Info("llm stream connected", "model", c.ModelName)
+
 		// 读取 SSE 流
 		reader := bufio.NewReader(resp.Body)
+		chunkCount := 0
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
@@ -144,9 +149,12 @@ func (c *Client) ChatStream(systemPrompt, userMessage string) (<-chan string, <-
 			}
 
 			if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+				chunkCount++
 				chunkCh <- chunk.Choices[0].Delta.Content
 			}
 		}
+
+		slog.Info("llm stream done", "model", c.ModelName, "total_chunks", chunkCount)
 	}()
 
 	return chunkCh, errCh
@@ -181,6 +189,8 @@ func (c *Client) Chat(systemPrompt, userMessage string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 
+	slog.Info("llm sync request", "model", c.ModelName, "url", url, "input_tokens", len(systemPrompt)+len(userMessage))
+	start := time.Now()
 	resp, err := c.httpCli.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("请求 LLM 失败: %w", err)
@@ -190,6 +200,11 @@ func (c *Client) Chat(systemPrompt, userMessage string) (string, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Error("llm sync response error", "status", resp.StatusCode, "body", string(body), "duration_ms", time.Since(start).Milliseconds())
+		return "", fmt.Errorf("LLM API 返回错误 %d: %s", resp.StatusCode, string(body))
 	}
 
 	// 解析非流式响应
@@ -205,8 +220,11 @@ func (c *Client) Chat(systemPrompt, userMessage string) (string, error) {
 	}
 
 	if len(result.Choices) > 0 {
+		outputLen := len(result.Choices[0].Message.Content)
+		slog.Info("llm sync done", "model", c.ModelName, "duration_ms", time.Since(start).Milliseconds(), "output_len", outputLen)
 		return result.Choices[0].Message.Content, nil
 	}
 
+	slog.Warn("llm sync empty response", "model", c.ModelName, "duration_ms", time.Since(start).Milliseconds())
 	return "", fmt.Errorf("LLM 返回空响应")
 }
