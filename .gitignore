@@ -1,9 +1,10 @@
 # ============================================================
 # 编译产物
 # ============================================================
-go/go_to_chat
-java/target/
-java/dependency-reduced-pom.xml
+g/go_to_chat
+g/kb-chat-flow
+j/target/
+j/dependency-reduced-pom.xml
 
 # ============================================================
 # 配置文件（含 API 密钥，不提交）
@@ -13,21 +14,21 @@ java/dependency-reduced-pom.xml
 # ============================================================
 # SQLite 数据库
 # ============================================================
-go/cfg.db
-go/*.db-shm
-go/*.db-wal
-go/*.exe
-java/cfg.db
-java/*.db-shm
-java/*.db-wal
+g/cfg.db
+g/*.db-shm
+g/*.db-wal
+g/*.exe
+j/cfg.db
+j/*.db-shm
+j/*.db-wal
 
 # ============================================================
 # 上传文档 / 向量存储数据
 # ============================================================
-go/upload_doc/
-go/vdb/
-java/upload_doc/
-java/vdb/
+g/upload_doc/
+g/vdb/
+j/upload_doc/
+j/vdb/
 
 # ============================================================
 # IDE
