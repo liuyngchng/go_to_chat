@@ -225,6 +225,63 @@ public class FaqController {
     }
 
     // ============================================================
+    // FAQ matching (called by ChatController)
+    // ============================================================
+
+    /**
+     * Match user query against FAQ entries using cosine similarity.
+     * Returns (answer, score) if matched, or null if no match above threshold.
+     */
+    public FaqMatchResult matchFaq(String query, double threshold) {
+        try {
+            var questions = metaStore.getAllFaqQuestionsWithEmbedding();
+            if (questions.isEmpty()) return null;
+
+            double[] queryVec = clientFactory.getEmbeddingClient().embedSingle(query);
+
+            double bestScore = 0;
+            long bestEntryId = 0;
+
+            for (var q : questions) {
+                if (q.getEmbedding() == null || q.getEmbedding().length == 0) continue;
+                double score = cosineSimilarity(queryVec, q.getEmbedding());
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestEntryId = q.getEntryId();
+                }
+            }
+
+            if (bestScore < threshold) return null;
+
+            var entries = metaStore.getFaqEntries();
+            for (var e : entries) {
+                if (e.getId() == bestEntryId) {
+                    return new FaqMatchResult(e.getAnswer(), bestScore);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("FAQ 匹配失败", e);
+        }
+        return null;
+    }
+
+    /**
+     * Returns the number of FAQ entries.
+     */
+    public int getFaqCount() {
+        try {
+            return metaStore.getFaqEntries().size();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /**
+     * FAQ match result.
+     */
+    public record FaqMatchResult(String answer, double score) {}
+
+    // ============================================================
     // Internal helpers
     // ============================================================
 
@@ -301,6 +358,18 @@ public class FaqController {
     private static String truncate(String s, int maxLen) {
         if (s == null) return "";
         return s.length() <= maxLen ? s : s.substring(0, maxLen);
+    }
+
+    private static double cosineSimilarity(double[] a, double[] b) {
+        if (a.length != b.length || a.length == 0) return 0;
+        double dotProd = 0, normA = 0, normB = 0;
+        for (int i = 0; i < a.length; i++) {
+            dotProd += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        if (normA == 0 || normB == 0) return 0;
+        return dotProd / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
     // Reuse multipart parser from VdbController

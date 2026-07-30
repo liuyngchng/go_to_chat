@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"github.com/gin-gonic/gin"
 )
 
@@ -87,21 +88,22 @@ func (h *customHandler) WithGroup(name string) slog.Handler {
 	}
 }
 
-// Init 初始化日志，同时输出到控制台和文件
+// Init 初始化日志，同时输出到控制台和按小时滚动的日志文件
 func Init(debug bool) error {
-	// 确保日志目录存在
-	logDir := filepath.Dir("app.log")
-	if logDir != "." {
-		os.MkdirAll(logDir, 0755)
-	}
-
-	f, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	// 按小时滚动的日志 writer
+	// 生成文件: app.2026-07-30-14.log, app.log 为当前文件的软链接
+	fileWriter, err := rotatelogs.New(
+		"app.%Y-%m-%d-%H.log",
+		rotatelogs.WithLinkName("app.log"),
+		rotatelogs.WithRotationTime(time.Hour),
+		rotatelogs.WithMaxAge(7*24*time.Hour), // 保留 7 天
+	)
 	if err != nil {
 		return err
 	}
 
 	// 控制台 + 文件双输出
-	multiWriter := io.MultiWriter(os.Stdout, f)
+	multiWriter := io.MultiWriter(os.Stdout, fileWriter)
 
 	// 日志级别
 	level := slog.LevelInfo

@@ -27,7 +27,7 @@ RUN apk add --no-cache tzdata && \
 WORKDIR /opt/csm
 
 # 从构建阶段拷贝 jar
-COPY --from=builder /build/target/go-to-chat-1.0.0.jar ./go-to-chat.jar
+COPY --from=builder /build/target/kb-chat-flow-1.0.0.jar ./kb-chat-flow.jar
 
 # 拷贝配置模板
 COPY src/main/resources/cfg.yml.template ./cfg.yml.template
@@ -37,4 +37,4 @@ RUN mkdir -p upload_doc vdb
 
 EXPOSE 19007
 
-CMD ["java", "-jar", "go-to-chat.jar"]
+CMD ["java", "-jar", "kb-chat-flow.jar"]

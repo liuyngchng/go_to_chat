@@ -5,11 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.rd.robot</groupId>
-    <artifactId>go-to-chat</artifactId>
+    <artifactId>kb-chat-flow</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
-    <name>go-to-chat</name>
-    <description>AI 知识库问答系统 (Java 版)</description>
+    <name>kb-chat-flow</name>
+    <description>知识库问答机器人</description>
 
     <properties>
         <java.version>17</java.version>

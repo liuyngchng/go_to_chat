@@ -55,13 +55,13 @@ public class Bootstrap {
         // 9. Create controllers
         PageController pageController = new PageController(cfg);
         AuthController authController = new AuthController(metaStore);
-        ChatController chatController = new ChatController(cfg, kbManager, sessionMgr, metaStore, clientFactory);
+        FaqController faqController = new FaqController(metaStore, clientFactory);
+        ChatController chatController = new ChatController(cfg, kbManager, sessionMgr, metaStore, clientFactory, faqController);
         VdbController vdbController = new VdbController(cfg, kbManager, metaStore);
         ConfigController configController = new ConfigController(cfg, metaStore, clientFactory);
         UserController userController = new UserController(metaStore);
         AgentController agentController = new AgentController(metaStore);
         WorkflowController workflowController = new WorkflowController(metaStore);
-        FaqController faqController = new FaqController(metaStore, clientFactory);
 
         // 10. Create router and register routes
         Router router = new Router();

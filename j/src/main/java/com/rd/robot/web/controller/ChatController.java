@@ -37,14 +37,16 @@ public class ChatController {
     private final ClientFactory clientFactory;
     private final MetaStore metaStore;
     private final WorkflowEngine workflowEngine;
+    private final FaqController faqController;
 
     public ChatController(Config cfg, KnowledgeBaseManager kbMgr, SessionManager sessionMgr,
-                          MetaStore metaStore, ClientFactory clientFactory) {
+                          MetaStore metaStore, ClientFactory clientFactory, FaqController faqController) {
         this.cfg = cfg;
         this.kbMgr = kbMgr;
         this.sessionMgr = sessionMgr;
         this.metaStore = metaStore;
         this.clientFactory = clientFactory;
+        this.faqController = faqController;
         this.workflowEngine = new WorkflowEngine(cfg, kbMgr, metaStore, clientFactory);
     }
 
@@ -90,23 +92,22 @@ public class ChatController {
 
             // Try FAQ matching first
             double faqThreshold = cfg.getFaq().getMatchThreshold();
-            int faqCount = getFaqCount();
-            if (faqCount > 0) {
+            if (faqController.getFaqCount() > 0) {
                 try {
-                    FaqMatchResult faqResult = matchFaq(req.getMsg(), faqThreshold);
-                    if (faqResult != null && faqResult.answer != null) {
+                    FaqController.FaqMatchResult faqResult = faqController.matchFaq(req.getMsg(), faqThreshold);
+                    if (faqResult != null) {
                         log.info("faq-matched uid={} query={} score={}",
-                                uid, truncate(req.getMsg(), 50), faqResult.score);
+                                uid, truncate(req.getMsg(), 50), faqResult.score());
                         sessionMgr.addMessage(uid, sessionId, "user", req.getMsg());
                         ctx.writeAndFlush(new DefaultHttpContent(
                                 Unpooled.copiedBuffer("data: \n\n", CharsetUtil.UTF_8)));
                         ctx.writeAndFlush(new DefaultHttpContent(
-                                Unpooled.copiedBuffer("data: " + faqResult.answer + "\n\n", CharsetUtil.UTF_8)));
+                                Unpooled.copiedBuffer("data: " + faqResult.answer() + "\n\n", CharsetUtil.UTF_8)));
                         ctx.writeAndFlush(new DefaultHttpContent(
                                 Unpooled.copiedBuffer("data: [DONE]\n\n", CharsetUtil.UTF_8)));
                         ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
                                 .addListener(ChannelFutureListener.CLOSE);
-                        sessionMgr.addMessage(uid, sessionId, "assistant", faqResult.answer);
+                        sessionMgr.addMessage(uid, sessionId, "assistant", faqResult.answer());
                         return;
                     }
                 } catch (Exception e) {
@@ -287,78 +288,6 @@ public class ChatController {
         // Fallback to query param
         String uid = HttpServer.getQueryParam(request, "uid");
         return uid != null ? uid : "default";
-    }
-
-    // ============================================================
-    // FAQ matching (inline, avoids circular dependency)
-    // ============================================================
-
-    private static class FaqMatchResult {
-        String answer;
-        double score;
-    }
-
-    private int getFaqCount() {
-        try {
-            return metaStore.getFaqEntries().size();
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    private FaqMatchResult matchFaq(String query, double threshold) {
-        try {
-            var questions = metaStore.getAllFaqQuestionsWithEmbedding();
-            if (questions.isEmpty()) return null;
-
-            // Compute query embedding
-            var embClient = new com.rd.robot.client.EmbeddingClient(
-                    cfg.getApi().getEmbeddingApiUri(),
-                    cfg.getApi().getEmbeddingApiKey(),
-                    cfg.getApi().getEmbeddingModelName()
-            );
-            double[] queryVec = embClient.embedSingle(query);
-
-            double bestScore = 0;
-            long bestEntryId = 0;
-
-            for (var q : questions) {
-                if (q.getEmbedding() == null || q.getEmbedding().length == 0) continue;
-                double score = cosineSimilarity(queryVec, q.getEmbedding());
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestEntryId = q.getEntryId();
-                }
-            }
-
-            if (bestScore < threshold) return null;
-
-            // Get answer from entry
-            var entries = metaStore.getFaqEntries();
-            for (var e : entries) {
-                if (e.getId() == bestEntryId) {
-                    FaqMatchResult result = new FaqMatchResult();
-                    result.answer = e.getAnswer();
-                    result.score = bestScore;
-                    return result;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("FAQ 匹配失败", e);
-        }
-        return null;
-    }
-
-    private static double cosineSimilarity(double[] a, double[] b) {
-        if (a.length != b.length || a.length == 0) return 0;
-        double dotProd = 0, normA = 0, normB = 0;
-        for (int i = 0; i < a.length; i++) {
-            dotProd += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
-        }
-        if (normA == 0 || normB == 0) return 0;
-        return dotProd / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
     private static String truncate(String s, int maxLen) {

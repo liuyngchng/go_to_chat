@@ -7,7 +7,7 @@
         </Console>
         <!-- 文件输出 -->
         <RollingFile name="File" fileName="app.log"
-                     filePattern="app.%d{yyyy-MM-dd}.log.gz">
+                     filePattern="app.%d{yyyy-MM-dd-HH}.log.gz">
             <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%c{1}:%L] %msg%n"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1"/>
