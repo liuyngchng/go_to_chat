@@ -2,6 +2,9 @@ package com.rd.robot.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rd.robot.client.ClientFactory;
+import com.rd.robot.client.EmbeddingClient;
+import com.rd.robot.client.LlmClient;
+import com.rd.robot.client.RerankClient;
 import com.rd.robot.config.RuntimeConfig;
 import com.rd.robot.model.Config;
 import com.rd.robot.repository.MetaStore;
@@ -12,6 +15,8 @@ import io.netty.util.CharsetUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -38,7 +43,10 @@ public class ConfigController {
     public void getConfig(ChannelHandlerContext ctx, FullHttpRequest request) {
         try {
             Map<String, Object> data = new java.util.LinkedHashMap<>();
-            data.put("sys", _map("api_auth", cfg.getSys().isApiAuth() ? "true" : "false"));
+            data.put("sys", _map(
+                    "name", cfg.getSys().getName(),
+                    "auth", cfg.getSys().isAuth() ? "true" : "false",
+                    "api_auth", cfg.getSys().isApiAuth() ? "true" : "false"));
             data.put("api", _map(
                     "llm_api_uri", cfg.getApi().getLlmApiUri(),
                     "llm_api_key", cfg.getApi().getLlmApiKey(),
@@ -105,6 +113,9 @@ public class ConfigController {
             Map<String, Object> faq = (Map<String, Object>) req.get("faq");
 
             if (sys != null) {
+                if (sys.get("name") != null && !((String) sys.get("name")).isEmpty())
+                    metaStore.setConfig("sys.name", (String) sys.get("name"), "系统名称");
+                // sys.auth is read-only from cfg.yml, not updateable via page
                 if (sys.get("api_auth") != null) metaStore.setConfig("sys.api_auth", (String) sys.get("api_auth"), "是否启用接口认证");
             }
 
@@ -153,6 +164,90 @@ public class ConfigController {
             log.error("更新配置失败", e);
             String errMsg = e.getMessage() != null ? e.getMessage() : "未知错误";
             HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR, "更新配置失败: " + errMsg);
+        }
+    }
+
+    /**
+     * POST /api/config/test-models — test API connectivity.
+     */
+    public void testModels(ChannelHandlerContext ctx, FullHttpRequest request) {
+        try {
+            String body = request.content().toString(CharsetUtil.UTF_8);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> req = MAPPER.readValue(body, Map.class);
+
+            List<Map<String, Object>> results = new ArrayList<>();
+
+            // 1. Test LLM model
+            String llmUri = (String) req.get("llm_api_uri");
+            if (llmUri != null && !llmUri.isEmpty()) {
+                long t0 = System.currentTimeMillis();
+                try {
+                    String llmKey = (String) req.get("llm_api_key");
+                    String llmModel = (String) req.get("llm_model_name");
+                    LlmClient client = new LlmClient(llmUri, llmKey, llmModel);
+                    client.chat("你是一个助手，请回复 OK。", "hi");
+                    long elapsed = System.currentTimeMillis() - t0;
+                    results.add(_map("name", "LLM 对话模型", "ok", true, "message", "连接成功", "elapsed_ms", elapsed));
+                } catch (Exception e) {
+                    long elapsed = System.currentTimeMillis() - t0;
+                    log.warn("model test: LLM failed error={}", e.getMessage());
+                    results.add(_map("name", "LLM 对话模型", "ok", false, "message", e.getMessage(), "elapsed_ms", elapsed));
+                }
+            } else {
+                results.add(_map("name", "LLM 对话模型", "ok", false, "message", "未配置 API 地址"));
+            }
+
+            // 2. Test Embedding model
+            String embUri = (String) req.get("embedding_api_uri");
+            if (embUri != null && !embUri.isEmpty()) {
+                long t0 = System.currentTimeMillis();
+                try {
+                    String embKey = (String) req.get("embedding_api_key");
+                    String embModel = (String) req.get("embedding_model_name");
+                    EmbeddingClient client = new EmbeddingClient(embUri, embKey, embModel);
+                    int dim = client.dimension();
+                    long elapsed = System.currentTimeMillis() - t0;
+                    results.add(_map("name", "Embedding 向量模型", "ok", true, "message", "连接成功 (dim=" + dim + ")", "elapsed_ms", elapsed));
+                } catch (Exception e) {
+                    long elapsed = System.currentTimeMillis() - t0;
+                    log.warn("model test: Embedding failed error={}", e.getMessage());
+                    results.add(_map("name", "Embedding 向量模型", "ok", false, "message", e.getMessage(), "elapsed_ms", elapsed));
+                }
+            } else {
+                results.add(_map("name", "Embedding 向量模型", "ok", false, "message", "未配置 API 地址"));
+            }
+
+            // 3. Test Rerank model
+            String rerankUri = (String) req.get("rerank_api_uri");
+            if (rerankUri != null && !rerankUri.isEmpty()) {
+                long t0 = System.currentTimeMillis();
+                try {
+                    String rerankKey = (String) req.get("rerank_api_key");
+                    String rerankModel = (String) req.get("rerank_model_name");
+                    RerankClient client = new RerankClient(rerankUri, rerankKey, rerankModel);
+                    client.rerank("test", List.of("hello world", "goodbye"), 1);
+                    long elapsed = System.currentTimeMillis() - t0;
+                    results.add(_map("name", "Rerank 重排序模型", "ok", true, "message", "连接成功", "elapsed_ms", elapsed));
+                } catch (Exception e) {
+                    long elapsed = System.currentTimeMillis() - t0;
+                    log.warn("model test: Rerank failed error={}", e.getMessage());
+                    results.add(_map("name", "Rerank 重排序模型", "ok", false, "message", e.getMessage(), "elapsed_ms", elapsed));
+                }
+            } else {
+                results.add(_map("name", "Rerank 重排序模型", "ok", false, "message", "未配置 API 地址"));
+            }
+
+            boolean allOK = results.stream().allMatch(r -> Boolean.TRUE.equals(r.get("ok")));
+
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("results", results);
+            resp.put("all_ok", allOK);
+            HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(resp));
+
+        } catch (Exception e) {
+            log.error("model test error", e);
+            HttpServer.sendJson(ctx, 500, "{\"error\":\"模型测试失败: " + e.getMessage() + "\"}");
         }
     }
 

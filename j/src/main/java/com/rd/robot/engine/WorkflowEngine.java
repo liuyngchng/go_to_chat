@@ -3,24 +3,23 @@ package com.rd.robot.engine;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rd.robot.client.ClientFactory;
+import com.rd.robot.client.EmbeddingClient;
 import com.rd.robot.client.LlmClient;
+import com.rd.robot.fasttext.FasttextPredictor;
 import com.rd.robot.knowledge.KnowledgeBaseManager;
 import com.rd.robot.model.*;
 import com.rd.robot.repository.MetaStore;
-import com.rd.robot.vector.VectorStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 /**
  * Workflow execution engine.
  * Executes a workflow's nodes sequentially, supporting streaming output,
- * variable passing, KB retrieval, and intent classification routing.
+ * variable passing, KB retrieval, and multi-tier intent classification routing.
  */
 public class WorkflowEngine {
 
@@ -31,6 +30,7 @@ public class WorkflowEngine {
     private final KnowledgeBaseManager kbMgr;
     private final MetaStore metaStore;
     private final ClientFactory clientFactory;
+    private final FasttextPredictor ftPredictor;
 
     public WorkflowEngine(Config cfg, KnowledgeBaseManager kbMgr, MetaStore metaStore,
                           ClientFactory clientFactory) {
@@ -38,6 +38,17 @@ public class WorkflowEngine {
         this.kbMgr = kbMgr;
         this.metaStore = metaStore;
         this.clientFactory = clientFactory;
+        this.ftPredictor = new FasttextPredictor();
+    }
+
+    /** Returns the embedding client (for external debug/test use). */
+    public EmbeddingClient embClient() {
+        return clientFactory.getEmbeddingClient();
+    }
+
+    /** Returns the fastText predictor (for external debug/test use). */
+    public FasttextPredictor ftPredictor() {
+        return ftPredictor;
     }
 
     /**
@@ -84,30 +95,57 @@ public class WorkflowEngine {
                 vars.put("cur_week", curWeek);
 
                 // 3. Intent classification (if workflow has a classifier)
+                String classifierOutputVar = "intent"; // default
                 if (workflow.getClassifier() != null) {
-                    String intent = IntentClassifier.classify(workflow.getClassifier(), userQuery, clientFactory.getLlmClient());
-                    String outputVar = workflow.getClassifier().getOutputVar();
-                    if (outputVar == null || outputVar.isEmpty()) {
-                        outputVar = "intent";
+                    // Train fastText model from category keywords
+                    try {
+                        ftPredictor.train(workflow.getClassifier().getCategories(),
+                                workflow.getClassifier().getPrompt());
+                    } catch (Exception e) {
+                        log.warn("fastText train failed, will skip fastText tier: {}", e.getMessage());
                     }
-                    vars.put(outputVar, intent);
+
+                    log.info("classifier start workflow={}", workflow.getName());
+                    long classifyStart = System.currentTimeMillis();
+
+                    String intent = IntentClassifier.classify(
+                            workflow.getClassifier(), userQuery,
+                            clientFactory.getLlmClient(),
+                            clientFactory.getEmbeddingClient(),
+                            ftPredictor);
+
+                    long classifyElapsed = System.currentTimeMillis() - classifyStart;
+
+                    classifierOutputVar = workflow.getClassifier().getOutputVar();
+                    if (classifierOutputVar == null || classifierOutputVar.isEmpty()) {
+                        classifierOutputVar = "intent";
+                    }
+                    vars.put(classifierOutputVar, intent);
                     // sys. prefixed copy for template reference
-                    vars.put("sys." + outputVar, intent);
+                    vars.put("sys." + classifierOutputVar, intent);
 
                     eventQueue.offer(new EngineEvent("progress", 0, total, "意图分类: " + intent, ""));
 
-                    log.info("workflow classify workflow={} intent={} query={}",
-                            workflow.getName(), intent, truncate(userQuery, 50));
+                    log.info("classifier done workflow={} intent={} duration_ms={} query={}",
+                            workflow.getName(), intent, classifyElapsed, truncate(userQuery, 50));
                 }
 
                 // 4. Execute nodes sequentially
+                log.info("workflow nodes start workflow={} total_nodes={} classifier_result={}",
+                        workflow.getName(), total, vars.get(classifierOutputVar));
+
                 for (int i = 0; i < nodes.size(); i++) {
                     WorkflowNode node = nodes.get(i);
 
                     // Condition routing: skip if condition doesn't match
-                    if (node.getCondition() != null && !node.getCondition().isEmpty()
-                            && !node.getCondition().equals(vars.get("intent"))) {
-                        continue;
+                    if (node.getCondition() != null && !node.getCondition().isEmpty()) {
+                        String currentIntent = vars.get(classifierOutputVar);
+                        if (!node.getCondition().equals(currentIntent)) {
+                            log.info("skip node by condition workflow={} node={} agent_name={} condition={} current_intent={}",
+                                    workflow.getName(), node.getId(), node.getAgentName(),
+                                    node.getCondition(), currentIntent);
+                            continue;
+                        }
                     }
 
                     // Load agent
@@ -121,11 +159,15 @@ public class WorkflowEngine {
                     stepCounter++;
                     eventQueue.offer(new EngineEvent("progress", stepCounter, total, agent.getName(), ""));
 
-                    log.info("workflow step workflow={} step={} agent={}",
-                            workflow.getName(), stepCounter, agent.getName());
+                    log.info("node start workflow={} step={} total={} node={} agent={} is_final={}",
+                            workflow.getName(), stepCounter, total, node.getId(), agent.getName(), node.isFinal());
 
                     // Render input template
                     String input = TemplateResolver.resolve(node.getInputTemplate(), vars);
+                    log.info("node input ready node={} agent={} input_len={} input_preview={}",
+                            node.getId(), agent.getName(),
+                            input != null ? input.length() : 0,
+                            truncate(input, 80));
 
                     // KB retrieval (if agent has vdb_ids)
                     vars.put("sys.kb_context", retrieveKbContext(agent, userQuery, uid));
@@ -135,12 +177,19 @@ public class WorkflowEngine {
 
                     // Select LLM client (with agent-specific params or defaults)
                     LlmClient llmClient = getLlmClient(agent);
+                    log.info("llm call start node={} agent={} model={} system_prompt_len={}",
+                            node.getId(), agent.getName(),
+                            llmClient.getModelName(),
+                            systemPrompt != null ? systemPrompt.length() : 0);
 
                     boolean isFinalNode = node.isFinal() || (i == nodes.size() - 1);
+
+                    long llmStart = System.currentTimeMillis();
 
                     if (isFinalNode) {
                         // Final node: streaming output via LLM
                         StringBuilder fullContent = new StringBuilder();
+                        int[] totalChunks = {0};
 
                         final int currentStep = stepCounter;
                         final String currentAgentName = agent.getName();
@@ -149,6 +198,7 @@ public class WorkflowEngine {
                         llmClient.chatStream(systemPrompt, input,
                                 chunk -> {
                                     // onChunk
+                                    totalChunks[0]++;
                                     fullContent.append(chunk);
                                     eventQueue.offer(new EngineEvent("chunk", currentStep, currentTotal, currentAgentName, chunk));
                                 },
@@ -158,17 +208,31 @@ public class WorkflowEngine {
                                             "[错误] " + error));
                                 },
                                 () -> {
-                                    // onDone - nothing special needed
+                                    // onDone
+                                    long llmElapsed = System.currentTimeMillis() - llmStart;
+                                    log.info("node done node={} agent={} type=stream duration_ms={} chunks={}",
+                                            node.getId(), currentAgentName, llmElapsed, totalChunks[0]);
                                 }
                         );
                     } else {
                         // Non-final node: synchronous call
                         try {
                             String fullOutput = llmClient.chat(systemPrompt, input);
-                            vars.put(node.getOutputVar(), fullOutput);
-                            vars.put(node.getId(), fullOutput); // Use node ID as key too
+                            long llmElapsed = System.currentTimeMillis() - llmStart;
+
+                            if (fullOutput != null) {
+                                vars.put(node.getOutputVar(), fullOutput);
+                                vars.put(node.getId(), fullOutput); // Use node ID as key too
+                                log.info("node done node={} agent={} type=sync duration_ms={} output_len={} output_preview={}",
+                                        node.getId(), agent.getName(), llmElapsed,
+                                        fullOutput.length(), truncate(fullOutput, 80));
+                            } else {
+                                String errorOutput = "[错误] LLM 返回空结果";
+                                vars.put(node.getOutputVar(), errorOutput);
+                                vars.put(node.getId(), errorOutput);
+                            }
                         } catch (Exception e) {
-                            log.warn("workflow node error node={} agent={} error={}", node.getId(), agent.getName(), e.getMessage());
+                            log.error("node error node={} agent={} error={}", node.getId(), agent.getName(), e.getMessage());
                             String errorOutput = "[错误] " + e.getMessage();
                             vars.put(node.getOutputVar(), errorOutput);
                             vars.put(node.getId(), errorOutput);
@@ -177,6 +241,7 @@ public class WorkflowEngine {
                 }
 
                 // Send completion event
+                log.info("workflow nodes done workflow={} total_nodes={}", workflow.getName(), total);
                 eventQueue.offer(new EngineEvent("done", total, total, "", ""));
 
             } catch (Exception e) {
@@ -206,6 +271,9 @@ public class WorkflowEngine {
                     break;
                 case "error":
                     lastError = evt.getContent();
+                    if (result.isEmpty()) {
+                        throw new RuntimeException(lastError);
+                    }
                     break;
                 case "done":
                     if (lastError != null && result.isEmpty()) {
@@ -221,7 +289,7 @@ public class WorkflowEngine {
     // ============================================================
 
     private LlmClient getLlmClient(AgentDef agent) {
-        String modelName = agent.getModelName() != null && !agent.getModelName().isEmpty()
+        String modelName = (agent.getModelName() != null && !agent.getModelName().isEmpty())
                 ? agent.getModelName() : null;
         LlmClient client = clientFactory.createLlmClient(modelName);
 
@@ -244,6 +312,9 @@ public class WorkflowEngine {
             List<Long> vdbIds = MAPPER.readValue(agent.getVdbIds(), new TypeReference<List<Long>>() {});
             if (vdbIds.isEmpty()) return "";
 
+            log.info("kb search start node={} agent={} vdb_ids={}", "workflow", agent.getName(), vdbIds);
+
+            long kbStart = System.currentTimeMillis();
             StringBuilder sb = new StringBuilder();
             for (long vdbId : vdbIds) {
                 String ctx = kbMgr.searchInKB(userQuery, vdbId, uid,
@@ -252,6 +323,11 @@ public class WorkflowEngine {
                     sb.append(ctx).append("\n");
                 }
             }
+            long kbElapsed = System.currentTimeMillis() - kbStart;
+
+            log.info("kb search done node={} agent={} kb_context_len={} duration_ms={}",
+                    "workflow", agent.getName(), sb.length(), kbElapsed);
+
             return sb.toString();
         } catch (Exception e) {
             log.warn("KB retrieval failed for agent {}", agent.getName(), e);

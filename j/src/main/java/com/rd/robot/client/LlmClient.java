@@ -53,6 +53,7 @@ public class LlmClient {
         if (maxTokens > 0) this.maxTokens = maxTokens;
     }
 
+    public String getModelName() { return modelName; }
     public Double getTemperature() { return temperature; }
     public Double getTopP() { return topP; }
     public Integer getMaxTokens() { return maxTokens; }

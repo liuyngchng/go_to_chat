@@ -411,6 +411,10 @@
                 <div class="cfg-tab" data-tab="faq">
                     <i class="fas fa-question-circle"></i> FAQ
                 </div>
+                <div class="cfg-sidebar-divider"></div>
+                <div class="cfg-tab" data-tab="intent">
+                    <i class="fas fa-brain"></i> 意图测试
+                </div>
             </nav>
 
             <!-- 右侧内容区 -->
@@ -577,15 +581,35 @@
                         <button class="cfg-btn cfg-btn-save" onclick="saveLLMConfig()">
                             <i class="fas fa-check"></i> 保存
                         </button>
+                        <button class="cfg-btn" onclick="testModels()" style="background:#f0f4ff;color:#4b6cb7;border:2px solid #4b6cb7;">
+                            <i class="fas fa-plug"></i> 测试连接
+                        </button>
                         <button class="cfg-btn cfg-btn-reset" onclick="loadConfig()">
                             <i class="fas fa-undo"></i> 重置
                         </button>
                     </div>
+                    <div id="modelTestResult" style="display:none;margin-top:16px;"></div>
                 </div>
 
                 <!-- 系统配置 -->
                 <div class="cfg-section" id="section-sys">
                     <h2><i class="fas fa-sliders-h"></i> 系统配置</h2>
+
+                    <div class="cfg-form-group">
+                        <label>系统名称</label>
+                        <input type="text" id="sys_name" placeholder="对话机器人" maxlength="50">
+                    </div>
+
+                    <div class="cfg-form-group">
+                        <label>用户认证</label>
+                        <div class="cfg-toggle-row">
+                            <label class="cfg-toggle">
+                                <input type="checkbox" id="sys_auth">
+                                <span class="cfg-toggle-slider"></span>
+                            </label>
+                            <span class="cfg-toggle-label" id="authLabel">未启用</span>
+                        </div>
+                    </div>
 
                     <div class="cfg-form-group">
                         <label>接口认证</label>
@@ -825,6 +849,45 @@
                             </form>
                         </div>
                     </div>
+                <!-- 意图分类测试 -->
+                <div class="cfg-section" id="section-intent">
+                    <h2><i class="fas fa-brain"></i> 意图识别测试</h2>
+                    <p style="color:#888;margin-bottom:16px;">输入文本，查看各层分类器的匹配结果和耗时</p>
+
+                    <div class="cfg-form-group">
+                        <label>选择工作流</label>
+                        <select id="intentWorkflow" style="max-width:400px;">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+
+                    <div class="cfg-form-group">
+                        <label>测试文本</label>
+                        <div style="display:flex;gap:10px;max-width:600px;">
+                            <input type="text" id="intentText" placeholder="输入用户可能说的话..." style="flex:1;">
+                            <button class="cfg-btn cfg-btn-save" onclick="testIntent()" style="white-space:nowrap;">
+                                <i class="fas fa-play"></i> 测试
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="intentResult" style="margin-top:20px;display:none;">
+                        <h3 style="font-size:1rem;color:#2c3e50;margin-bottom:12px;">
+                            最终结果: <span id="intentFinal" style="color:#4b6cb7;font-weight:700;"></span>
+                            <span style="color:#999;font-size:0.85rem;font-weight:400;"> (总耗时 <span id="intentTotal">0</span>ms)</span>
+                        </h3>
+                        <table style="width:100%;max-width:700px;border-collapse:collapse;">
+                            <thead>
+                                <tr style="background:#f5f7fa;">
+                                    <th style="padding:10px;text-align:left;border:1px solid #e0e3e8;">层级</th>
+                                    <th style="padding:10px;text-align:left;border:1px solid #e0e3e8;">结果</th>
+                                    <th style="padding:10px;text-align:right;border:1px solid #e0e3e8;">耗时</th>
+                                </tr>
+                            </thead>
+                            <tbody id="intentTiers"></tbody>
+                        </table>
+                    </div>
+                </div>
                 </div>
             </div>
         </div>
@@ -889,6 +952,9 @@
         });
 
         // Auth 开关标签
+        document.getElementById('sys_auth').addEventListener('change', function() {
+            document.getElementById('authLabel').textContent = this.checked ? '已启用' : '未启用';
+        });
         document.getElementById('sys_api_auth').addEventListener('change', function() {
             document.getElementById('apiAuthLabel').textContent = this.checked ? '已启用' : '未启用';
         });
@@ -906,6 +972,10 @@
                 const data = json.data;
 
                 // 系统配置
+                document.getElementById('sys_name').value = data.sys.name || '';
+                const auth = data.sys.auth === 'true';
+                document.getElementById('sys_auth').checked = auth;
+                document.getElementById('authLabel').textContent = auth ? '已启用' : '未启用';
                 const apiAuth = data.sys.api_auth !== 'false'; // 默认启用
                 document.getElementById('sys_api_auth').checked = apiAuth;
                 document.getElementById('apiAuthLabel').textContent = apiAuth ? '已启用' : '未启用';
@@ -949,18 +1019,46 @@
         // 保存模型配置
         // ============================================================
         async function saveLLMConfig() {
+            // ---- 必填校验 ----
+            var llmUri = document.getElementById('llm_api_uri').value.trim();
+            var llmKey = document.getElementById('llm_api_key').value.trim();
+            var llmModel = document.getElementById('llm_model_name').value.trim();
+            var embUri = document.getElementById('embedding_api_uri').value.trim();
+            var embKey = document.getElementById('embedding_api_key').value.trim();
+            var embModel = document.getElementById('embedding_model_name').value.trim();
+            var rerankUri = document.getElementById('rerank_api_uri').value.trim();
+            var rerankKey = document.getElementById('rerank_api_key').value.trim();
+            var rerankModel = document.getElementById('rerank_model_name').value.trim();
+
+            var errors = [];
+            if (!llmUri) errors.push('LLM API 地址不能为空');
+            if (!llmKey) errors.push('LLM API Key 不能为空');
+            if (!llmModel) errors.push('LLM 模型名称不能为空');
+            if (!embUri) errors.push('Embedding API 地址不能为空');
+            if (!embKey) errors.push('Embedding API Key 不能为空');
+            if (!embModel) errors.push('Embedding 模型名称不能为空');
+            if (rerankUri || rerankKey || rerankModel) {
+                if (!rerankUri) errors.push('Rerank API 地址不能为空');
+                if (!rerankModel) errors.push('Rerank 模型名称不能为空');
+            }
+
+            if (errors.length > 0) {
+                showToast('请填写必填项：' + errors.join('；'), 'error');
+                return;
+            }
+
             const payload = {
                 sys: { name: '', auth: '' },
                 api: {
-                    llm_api_uri: document.getElementById('llm_api_uri').value.trim(),
-                    llm_api_key: document.getElementById('llm_api_key').value.trim(),
-                    llm_model_name: document.getElementById('llm_model_name').value.trim(),
-                    embedding_api_uri: document.getElementById('embedding_api_uri').value.trim(),
-                    embedding_api_key: document.getElementById('embedding_api_key').value.trim(),
-                    embedding_model_name: document.getElementById('embedding_model_name').value.trim(),
-                    rerank_api_uri: document.getElementById('rerank_api_uri').value.trim(),
-                    rerank_api_key: document.getElementById('rerank_api_key').value.trim(),
-                    rerank_model_name: document.getElementById('rerank_model_name').value.trim()
+                    llm_api_uri: llmUri,
+                    llm_api_key: llmKey,
+                    llm_model_name: llmModel,
+                    embedding_api_uri: embUri,
+                    embedding_api_key: embKey,
+                    embedding_model_name: embModel,
+                    rerank_api_uri: rerankUri,
+                    rerank_api_key: rerankKey,
+                    rerank_model_name: rerankModel
                 },
                 prompt: { chat_msg: '' },
                 kb: { chunk_size: 0, chunk_overlap: 0, top_k: 0, score_threshold: 0, rerank_enabled: false, rerank_retrieve_n: 0 },
@@ -985,6 +1083,56 @@
                 }
             } catch (err) {
                 showToast('保存失败: ' + err.message, 'error');
+            }
+        }
+
+        // ============================================================
+        // 测试模型连接
+        // ============================================================
+        async function testModels() {
+            var resultDiv = document.getElementById('modelTestResult');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<div style="color:#999;padding:12px;background:#f5f7fa;border-radius:6px;"><i class="fas fa-spinner fa-spin"></i> 正在测试 API 连接...</div>';
+
+            var payload = {
+                llm_api_uri: document.getElementById('llm_api_uri').value.trim(),
+                llm_api_key: document.getElementById('llm_api_key').value.trim(),
+                llm_model_name: document.getElementById('llm_model_name').value.trim(),
+                embedding_api_uri: document.getElementById('embedding_api_uri').value.trim(),
+                embedding_api_key: document.getElementById('embedding_api_key').value.trim(),
+                embedding_model_name: document.getElementById('embedding_model_name').value.trim(),
+                rerank_api_uri: document.getElementById('rerank_api_uri').value.trim(),
+                rerank_api_key: document.getElementById('rerank_api_key').value.trim(),
+                rerank_model_name: document.getElementById('rerank_model_name').value.trim()
+            };
+
+            try {
+                var resp = await authFetch('/api/config/test-models', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                var data = await resp.json();
+                var results = data.results || [];
+
+                var html = '';
+                results.forEach(function(r) {
+                    var icon = r.ok ? '<i class="fas fa-check-circle" style="color:#2e7d32;"></i>' : '<i class="fas fa-times-circle" style="color:#c62828;"></i>';
+                    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;margin-bottom:6px;background:' + (r.ok ? '#e8f5e9' : '#ffebee') + ';border-radius:6px;">' +
+                        '<div>' + icon + ' <strong>' + escHtml2(r.name) + '</strong> &mdash; ' + escHtml2(r.message) + '</div>' +
+                        '<div style="color:#999;font-size:0.85rem;">' + (r.elapsed_ms || 0) + 'ms</div>' +
+                    '</div>';
+                });
+
+                if (data.all_ok) {
+                    html = '<div style="padding:12px;background:#e8f5e9;border-radius:6px;margin-bottom:12px;color:#2e7d32;font-weight:600;"><i class="fas fa-check-circle"></i> 所有模型连接正常</div>' + html;
+                } else {
+                    html = '<div style="padding:12px;background:#fff3cd;border-radius:6px;margin-bottom:12px;color:#856404;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> 部分模型连接失败，请检查配置</div>' + html;
+                }
+
+                resultDiv.innerHTML = html;
+            } catch(e) {
+                resultDiv.innerHTML = '<div style="color:#c62828;padding:12px;background:#ffebee;border-radius:6px;"><i class="fas fa-times-circle"></i> 测试失败: ' + e.message + '</div>';
             }
         }
 
@@ -1032,8 +1180,17 @@
         // 保存系统配置
         // ============================================================
         async function saveSysConfig() {
+            var sysName = document.getElementById('sys_name').value.trim();
+            if (!sysName) {
+                showToast('系统名称不能为空', 'error');
+                document.getElementById('sys_name').focus();
+                return;
+            }
+
             const payload = {
                 sys: {
+                    name: sysName,
+                    auth: document.getElementById('sys_auth').checked ? 'true' : 'false',
                     api_auth: document.getElementById('sys_api_auth').checked ? 'true' : 'false'
                 },
                 api: {
@@ -1585,12 +1742,85 @@
         // 文件选择触发
         document.getElementById('faqFileInput').addEventListener('change', uploadFaqFile);
 
+        // ============================================================
+        // 意图分类测试
+        // ============================================================
+
+        async function loadWorkflows() {
+            try {
+                var resp = await authFetch('/api/workflows');
+                var json = await resp.json();
+                var workflows = json.data || [];
+                var sel = document.getElementById('intentWorkflow');
+                sel.innerHTML = workflows.map(function(w) {
+                    return '<option value="' + w.id + '">' + escHtml2(w.name) + '</option>';
+                }).join('');
+                if (workflows.length === 0) {
+                    sel.innerHTML = '<option value="">没有可用工作流</option>';
+                }
+            } catch(e) {
+                document.getElementById('intentWorkflow').innerHTML = '<option value="">加载失败</option>';
+            }
+        }
+
+        async function testIntent() {
+            var workflowId = parseInt(document.getElementById('intentWorkflow').value) || 0;
+            var text = document.getElementById('intentText').value.trim();
+
+            if (!workflowId) { showToast('请先选择工作流', 'error'); return; }
+            if (!text) { showToast('请输入测试文本', 'error'); return; }
+
+            var resultDiv = document.getElementById('intentResult');
+            var tiersTbody = document.getElementById('intentTiers');
+            resultDiv.style.display = 'none';
+            tiersTbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#999;padding:20px;">测试中...</td></tr>';
+            resultDiv.style.display = 'block';
+
+            try {
+                var resp = await authFetch('/api/classifier/test', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({workflow_id: workflowId, text: text})
+                });
+                var data = await resp.json();
+
+                if (data.error) {
+                    tiersTbody.innerHTML = '<tr><td colspan="3" style="color:#c62828;padding:12px;">' + escHtml2(data.error) + '</td></tr>';
+                    return;
+                }
+
+                document.getElementById('intentFinal').textContent = data.final || '-';
+                document.getElementById('intentTotal').textContent = data.total_ms || 0;
+
+                var tiers = data.tiers || [];
+                tiersTbody.innerHTML = tiers.map(function(t) {
+                    var statusHtml = '';
+                    if (t.skipped) {
+                        statusHtml = '<span style="color:#999;">跳过</span>';
+                    } else if (t.matched) {
+                        statusHtml = '<span style="color:#2e7d32;font-weight:600;">&#10003; ' + escHtml2(t.result) + '</span>';
+                        if (t.score) statusHtml += ' <span style="color:#999;font-size:0.8rem;">(' + t.score.toFixed(4) + ')</span>';
+                    } else {
+                        statusHtml = '<span style="color:#e67e22;">未命中</span>';
+                        if (t.score) statusHtml += ' <span style="color:#999;font-size:0.8rem;">(' + t.score.toFixed(4) + ')</span>';
+                    }
+                    return '<tr>' +
+                        '<td style="padding:10px;border:1px solid #e0e3e8;font-weight:500;">' + t.name + '</td>' +
+                        '<td style="padding:10px;border:1px solid #e0e3e8;">' + statusHtml + '</td>' +
+                        '<td style="padding:10px;border:1px solid #e0e3e8;text-align:right;color:#999;">' + (t.elapsed_ms || 0) + 'ms</td>' +
+                    '</tr>';
+                }).join('');
+            } catch(e) {
+                tiersTbody.innerHTML = '<tr><td colspan="3" style="color:#c62828;padding:12px;">请求失败: ' + e.message + '</td></tr>';
+            }
+        }
+
         // 初始加载
         loadConfig();
         loadUsers();
         loadAiAgents();
-
         loadFaqList();
+        loadWorkflows();
     </script>
 </body>
 </html>

@@ -3,6 +3,7 @@ package com.rd.robot.web.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rd.robot.client.ClientFactory;
 import com.rd.robot.client.LlmClient;
+import com.rd.robot.engine.IntentClassifier;
 import com.rd.robot.engine.TemplateResolver;
 import com.rd.robot.engine.WorkflowEngine;
 import com.rd.robot.knowledge.KnowledgeBaseManager;
@@ -20,7 +21,9 @@ import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -249,6 +252,84 @@ public class ChatController {
             HttpServer.sendJson(ctx, 200, "{\"status\":\"ok\"}");
         } catch (Exception e) {
             HttpServer.sendJson(ctx, 500, "{\"error\":\"清空会话失败: " + e.getMessage() + "\"}");
+        }
+    }
+
+    /**
+     * POST /api/classifier/test — intent classification testing
+     */
+    public void testClassifier(ChannelHandlerContext ctx, FullHttpRequest request) {
+        try {
+            String body = request.content().toString(CharsetUtil.UTF_8);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> req = MAPPER.readValue(body, Map.class);
+
+            String text = (String) req.get("text");
+            if (text == null || text.isEmpty()) {
+                HttpServer.sendJson(ctx, 400, "{\"error\":\"text 不能为空\"}");
+                return;
+            }
+
+            long workflowId = req.get("workflow_id") instanceof Number
+                    ? ((Number) req.get("workflow_id")).longValue() : 0;
+            if (workflowId <= 0) {
+                HttpServer.sendJson(ctx, 400, "{\"error\":\"workflow_id 不能为空\"}");
+                return;
+            }
+
+            // Load workflow
+            WorkflowDef workflow = metaStore.getWorkflow(workflowId);
+            if (workflow == null) {
+                HttpServer.sendJson(ctx, 404, "{\"error\":\"工作流不存在\"}");
+                return;
+            }
+
+            if (workflow.getClassifier() == null || workflow.getClassifier().getCategories() == null
+                    || workflow.getClassifier().getCategories().isEmpty()) {
+                HttpServer.sendJson(ctx, 400, "{\"error\":\"该工作流没有配置意图分类器\"}");
+                return;
+            }
+
+            // Train fastText model
+            try {
+                workflowEngine.ftPredictor().train(
+                        workflow.getClassifier().getCategories(),
+                        workflow.getClassifier().getPrompt());
+            } catch (Exception e) {
+                log.warn("fastText train failed for test: {}", e.getMessage());
+            }
+
+            // Execute classification with details
+            IntentClassifier.ClassificationDetail detail = IntentClassifier.classifyWithDetails(
+                    workflow.getClassifier(), text,
+                    getLlmClient(),
+                    workflowEngine.embClient(),
+                    workflowEngine.ftPredictor());
+
+            // Build tier result maps for JSON serialization
+            List<Map<String, Object>> tiers = new ArrayList<>();
+            long totalMs = 0;
+            for (IntentClassifier.TierResult t : detail.tiers) {
+                Map<String, Object> tm = new java.util.LinkedHashMap<>();
+                tm.put("name", t.name);
+                tm.put("matched", t.matched);
+                if (t.skipped) tm.put("skipped", true);
+                if (t.result != null) tm.put("result", t.result);
+                if (t.score > 0) tm.put("score", t.score);
+                tm.put("elapsed_ms", t.elapsedMs);
+                tiers.add(tm);
+                totalMs += t.elapsedMs;
+            }
+
+            Map<String, Object> result = new java.util.LinkedHashMap<>();
+            result.put("tiers", tiers);
+            result.put("final", detail.finalResult);
+            result.put("total_ms", totalMs);
+
+            HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(result));
+        } catch (Exception e) {
+            log.error("classifier test error", e);
+            HttpServer.sendJson(ctx, 500, "{\"error\":\"分类测试失败: " + e.getMessage() + "\"}");
         }
     }
 

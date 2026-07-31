@@ -86,6 +86,7 @@ public class Bootstrap {
         // -- Config API --
         router.addRoute("GET", "/api/config", configController::getConfig);
         router.addRoute("PUT", "/api/config", configController::updateConfig);
+        router.addRoute("POST", "/api/config/test-models", configController::testModels);
 
         // -- VDB API --
         router.addRoute("GET", "/api/vdb", vdbController::myList);
@@ -135,6 +136,9 @@ public class Bootstrap {
         router.addRoute("GET", "/api/workflows/:id", workflowController::get);
         router.addRoute("PUT", "/api/workflows/:id", workflowController::update);
         router.addRoute("DELETE", "/api/workflows/:id", workflowController::delete);
+
+        // -- Classifier test --
+        router.addRoute("POST", "/api/classifier/test", chatController::testClassifier);
 
         // 11. Start HTTP server
         HttpServer server = new HttpServer(cfg.getServer().getPort(), router, cfg);

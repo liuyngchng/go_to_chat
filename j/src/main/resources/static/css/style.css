@@ -277,26 +277,26 @@ header p {
     color: white;
 }
 
-.send-button:hover:not(:disabled) {
+.send-button:hover {
     background: linear-gradient(to right, #3a5a9e, #2c487e);
     transform: translateY(-2px);
     box-shadow: 0 5px 15px rgba(75, 108, 183, 0.3);
 }
 
-.send-button:disabled {
-    background: #e0e0e0;
-    cursor: not-allowed;
-    color: #aaa;
-}
-
 .stop-button {
     background: #ff4d4d;
     color: white;
+    display: none;
 }
 
 .stop-button:hover {
     background: #e60000;
     transform: translateY(-2px);
+}
+
+.send-button,
+.stop-button {
+    min-width: 90px;
 }
 
 /* ============================================================
@@ -823,68 +823,6 @@ footer {
 }
 
 /* ============================================================
-   响应式
-   ============================================================ */
-@media (max-width: 768px) {
-    .container {
-        height: 95vh;
-        border-radius: 12px;
-    }
-
-    header {
-        padding: 15px;
-    }
-
-    header h1 {
-        font-size: 1.5rem;
-        padding-top: 10px;
-    }
-
-    .system-settings-link-container {
-        position: static;
-        justify-content: center;
-        margin-top: 10px;
-    }
-
-    .chat-container {
-        padding: 15px;
-    }
-
-    .message-bubble {
-        max-width: 90%;
-        padding: 12px;
-    }
-
-    .input-container {
-        flex-direction: column;
-    }
-
-    .button-container {
-        width: 100%;
-    }
-
-    .send-button, .stop-button {
-        width: 100%;
-        padding: 12px;
-    }
-
-    .kb-inline-group {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .kb-create-inputs {
-        flex-wrap: wrap;
-    }
-}
-
-@media (max-width: 480px) {
-    .kb-select {
-        min-width: 100%;
-    }
-}
-
-/* ============================================================
    登录页样式
    ============================================================ */
 .login-wrapper {
@@ -1010,42 +948,6 @@ footer {
 }
 
 /* ============================================================
-   通用按钮
-   ============================================================ */
-.cfg-btn {
-    padding: 11px 28px;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.cfg-btn-save {
-    background: linear-gradient(135deg, #4b6cb7, #3a5a9e);
-    color: white;
-}
-
-.cfg-btn-save:hover {
-    background: linear-gradient(135deg, #3a5a9e, #2c487e);
-    box-shadow: 0 4px 12px rgba(75, 108, 183, 0.3);
-    transform: translateY(-1px);
-}
-
-.cfg-btn-reset {
-    background: #f0f0f0;
-    color: #555;
-}
-
-.cfg-btn-reset:hover {
-    background: #e0e0e0;
-}
-
-/* ============================================================
    修改密码弹窗
    ============================================================ */
 .pwd-modal-overlay {
@@ -1106,4 +1008,66 @@ footer {
     gap: 10px;
     justify-content: flex-end;
     margin-top: 20px;
+}
+
+/* ============================================================
+   响应式
+   ============================================================ */
+@media (max-width: 768px) {
+    .container {
+        height: 95vh;
+        border-radius: 12px;
+    }
+
+    header {
+        padding: 15px;
+    }
+
+    header h1 {
+        font-size: 1.5rem;
+        padding-top: 10px;
+    }
+
+    .system-settings-link-container {
+        position: static;
+        justify-content: center;
+        margin-top: 10px;
+    }
+
+    .chat-container {
+        padding: 15px;
+    }
+
+    .message-bubble {
+        max-width: 90%;
+        padding: 12px;
+    }
+
+    .input-container {
+        flex-direction: column;
+    }
+
+    .button-container {
+        width: 100%;
+    }
+
+    .send-button, .stop-button {
+        width: 100%;
+        padding: 12px;
+    }
+
+    .kb-inline-group {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .kb-create-inputs {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    .kb-select {
+        min-width: 100%;
+    }
 }
