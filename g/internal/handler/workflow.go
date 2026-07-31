@@ -29,9 +29,9 @@ func (h *WorkflowHandler) ListPublic(c *gin.Context) {
 	}
 
 	type pubWorkflow struct {
-		ID          int64              `json:"id"`
-		Name        string             `json:"name"`
-		Description string             `json:"description"`
+		ID          int64                `json:"id"`
+		Name        string               `json:"name"`
+		Description string               `json:"description"`
 		Classifier  *model.ClassifierDef `json:"classifier,omitempty"`
 		Nodes       []model.WorkflowNode `json:"nodes,omitempty"`
 	}

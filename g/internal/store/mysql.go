@@ -896,12 +896,12 @@ func (s *MySQLStore) SeedDefaultConfigs(sysName string) error {
 		{"kb.chunk_overlap", "80", "文本分片重叠大小（字符数）"},
 		{"kb.top_k", "3", "检索返回条数"},
 		{"kb.rerank_enabled", "false", "是否启用 Rerank 重排序"},
-			{"kb.rerank_retrieve_n", "15", "Rerank 预检索条数"},
-			{"kb.score_threshold", "0.1", "检索相似度阈值"},
+		{"kb.rerank_retrieve_n", "15", "Rerank 预检索条数"},
+		{"kb.score_threshold", "0.1", "检索相似度阈值"},
 		{"llm.temperature", "0.7", "LLM 温度参数 (0-2)"},
 		{"llm.top_p", "0.9", "LLM Top-P 采样参数 (0-1)"},
 		{"llm.max_tokens", "2048", "LLM 最大生成 Token 数"},
-			{"faq.match_threshold", "0.85", "FAQ 匹配阈值 (0~1)"},
+		{"faq.match_threshold", "0.85", "FAQ 匹配阈值 (0~1)"},
 	}
 
 	for _, e := range entries {

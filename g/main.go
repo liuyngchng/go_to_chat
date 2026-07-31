@@ -142,10 +142,9 @@ func main() {
 		// 在线座席
 		authAPI.GET("/agents", h.Auth.GetOnlineAgents)
 
-
-			// FAQ（所有认证用户可读）
-			authAPI.GET("/faq", h.Faq.List)
-			authAPI.GET("/faq/template", h.Faq.Template)
+		// FAQ（所有认证用户可读）
+		authAPI.GET("/faq", h.Faq.List)
+		authAPI.GET("/faq/template", h.Faq.Template)
 		// 当前用户信息
 		authAPI.GET("/me", h.Auth.Me)
 
@@ -187,12 +186,12 @@ func main() {
 	{
 		adminAPI.PUT("/config", h.Config.UpdateConfig)
 
-			// FAQ 管理
-			adminAPI.POST("/faq", h.Faq.Create)
-			adminAPI.POST("/faq/upload", h.Faq.Upload)
-			adminAPI.PUT("/faq/:id", h.Faq.Update)
-			adminAPI.DELETE("/faq/:id", h.Faq.Delete)
-			adminAPI.DELETE("/faq", h.Faq.ClearAll)
+		// FAQ 管理
+		adminAPI.POST("/faq", h.Faq.Create)
+		adminAPI.POST("/faq/upload", h.Faq.Upload)
+		adminAPI.PUT("/faq/:id", h.Faq.Update)
+		adminAPI.DELETE("/faq/:id", h.Faq.Delete)
+		adminAPI.DELETE("/faq", h.Faq.ClearAll)
 
 		// 用户管理
 		adminAPI.GET("/users", h.User.ListUsers)

@@ -15,7 +15,7 @@ import (
 
 // EngineEvent 工作流执行事件
 type EngineEvent struct {
-	Type    string `json:"type"`    // "progress" | "chunk" | "done" | "error"
+	Type    string `json:"type"` // "progress" | "chunk" | "done" | "error"
 	Step    int    `json:"step"`
 	Total   int    `json:"total"`
 	Agent   string `json:"agent"`
@@ -25,10 +25,10 @@ type EngineEvent struct {
 
 // Engine 工作流执行引擎
 type Engine struct {
-	cfg       *model.Config
-	kbMgr     *kb.Manager
-	store     store.MetaStore
-	baseLLM   *llm.Client
+	cfg     *model.Config
+	kbMgr   *kb.Manager
+	store   store.MetaStore
+	baseLLM *llm.Client
 }
 
 // NewEngine 创建引擎

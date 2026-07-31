@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	MaxHistoryRounds = 5                  // 最多保留 5 轮（10 条消息）
+	MaxHistoryRounds = 5 // 最多保留 5 轮（10 条消息）
 	SessionTimeout   = 30 * time.Minute
 	CleanupInterval  = 10 * time.Minute
 )

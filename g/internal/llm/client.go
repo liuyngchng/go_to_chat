@@ -18,7 +18,7 @@ import (
 // 高并发 HTTP 连接池（流式 LLM 调用需要更长超时）
 var llmHTTPClient = &http.Client{
 	Transport: &http.Transport{
-		Proxy:                 nil, // 忽略所有代理，直连
+		Proxy: nil, // 忽略所有代理，直连
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
@@ -78,14 +78,14 @@ func (c *Client) ChatStream(systemPrompt, userMessage string) (<-chan string, <-
 			{Role: "user", Content: userMessage},
 		}
 
-			reqBody := model.ChatCompletionRequest{
-				Model:       c.ModelName,
-				Messages:    messages,
-				Stream:      true,
-				Temperature: c.Temperature,
-				TopP:        c.TopP,
-				MaxTokens:   c.MaxTokens,
-			}
+		reqBody := model.ChatCompletionRequest{
+			Model:       c.ModelName,
+			Messages:    messages,
+			Stream:      true,
+			Temperature: c.Temperature,
+			TopP:        c.TopP,
+			MaxTokens:   c.MaxTokens,
+		}
 
 		jsonData, err := json.Marshal(reqBody)
 		if err != nil {

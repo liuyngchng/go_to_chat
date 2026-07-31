@@ -19,7 +19,7 @@ const MaxBatchSize = 32
 // 高并发 HTTP 连接池
 var embedHTTPClient = &http.Client{
 	Transport: &http.Transport{
-		Proxy:                 nil, // 忽略所有代理，直连
+		Proxy: nil, // 忽略所有代理，直连
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
