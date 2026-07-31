@@ -17,9 +17,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * Auto-generates training data from category keywords+descriptions,
  * trains a model, and performs prediction.
  */
-public class FasttextPredictor {
+public class FastTextPredictor {
 
-    private static final Logger log = LoggerFactory.getLogger(FasttextPredictor.class);
+    private static final Logger log = LoggerFactory.getLogger(FastTextPredictor.class);
 
     /** Confidence threshold: below this value, fallthrough to next tier. */
     public static final double CONFIDENCE_THRESHOLD = 0.5;
@@ -33,7 +33,7 @@ public class FasttextPredictor {
     /** Prediction result. */
     public record Result(String label, double confidence) {}
 
-    public FasttextPredictor() {
+    public FastTextPredictor() {
         this.workDir = DEFAULT_WORK_DIR;
         try {
             Files.createDirectories(Paths.get(workDir));

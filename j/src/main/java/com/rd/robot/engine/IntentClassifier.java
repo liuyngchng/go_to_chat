@@ -2,7 +2,7 @@ package com.rd.robot.engine;
 
 import com.rd.robot.client.EmbeddingClient;
 import com.rd.robot.client.LlmClient;
-import com.rd.robot.fasttext.FasttextPredictor;
+import com.rd.robot.fasttext.FastTextPredictor;
 import com.rd.robot.model.ClassifierDef;
 import com.rd.robot.model.IntentCategory;
 import org.slf4j.Logger;
@@ -56,7 +56,7 @@ public class IntentClassifier {
      */
     public static ClassificationDetail classifyWithDetails(ClassifierDef cfg, String userQuery,
                                                             LlmClient llmClient, EmbeddingClient embClient,
-                                                            FasttextPredictor ftPredictor) {
+                                                            FastTextPredictor ftPredictor) {
         List<TierResult> tiers = new ArrayList<>();
 
         if (cfg == null || cfg.getCategories() == null || cfg.getCategories().isEmpty()) {
@@ -85,12 +85,12 @@ public class IntentClassifier {
                 tr.name = "fasttext"; tr.skipped = true; tr.elapsedMs = System.currentTimeMillis() - t0;
                 tiers.add(tr);
             } else {
-                FasttextPredictor.Result result = ftPredictor.predict(userQuery);
+                FastTextPredictor.Result result = ftPredictor.predict(userQuery);
                 elapsed = System.currentTimeMillis() - t0;
                 if (result != null) {
                     TierResult tr = new TierResult();
                     tr.name = "fasttext"; tr.elapsedMs = elapsed;
-                    if (result.confidence() >= FasttextPredictor.CONFIDENCE_THRESHOLD) {
+                    if (result.confidence() >= FastTextPredictor.CONFIDENCE_THRESHOLD) {
                         tr.matched = true; tr.result = result.label(); tr.score = result.confidence();
                         tiers.add(tr);
                         return new ClassificationDetail(tiers, result.label());
@@ -175,7 +175,7 @@ public class IntentClassifier {
      * @return matched category name, or empty string if nothing matches
      */
     public static String classify(ClassifierDef cfg, String userQuery, LlmClient llmClient,
-                                   EmbeddingClient embClient, FasttextPredictor ftPredictor) {
+                                   EmbeddingClient embClient, FastTextPredictor ftPredictor) {
         if (cfg == null || cfg.getCategories() == null || cfg.getCategories().isEmpty()) {
             return "";
         }
@@ -191,9 +191,9 @@ public class IntentClassifier {
             if (!ftPredictor.isTrained()) {
                 log.warn("fast_text_model_not_found skipping_fast_text_tier path=dt/ft/model.ftz");
             } else {
-                FasttextPredictor.Result result = ftPredictor.predict(userQuery);
+                FastTextPredictor.Result result = ftPredictor.predict(userQuery);
                 if (result != null) {
-                    if (result.confidence() >= FasttextPredictor.CONFIDENCE_THRESHOLD) {
+                    if (result.confidence() >= FastTextPredictor.CONFIDENCE_THRESHOLD) {
                         log.info("classifier_fast_text_matched intent={} confidence={} query={}",
                                 result.label(), result.confidence(), truncate(userQuery, 50));
                         return result.label();
@@ -264,7 +264,7 @@ public class IntentClassifier {
     }
 
     // ============================================================
-    // Tier 2: fastText (in separate FasttextPredictor class)
+    // Tier 2: fastText (in separate FastTextPredictor class)
     // ============================================================
 
     // ============================================================

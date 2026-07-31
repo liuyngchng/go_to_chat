@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rd.robot.client.ClientFactory;
 import com.rd.robot.client.EmbeddingClient;
 import com.rd.robot.client.LlmClient;
-import com.rd.robot.fasttext.FasttextPredictor;
+import com.rd.robot.fasttext.FastTextPredictor;
 import com.rd.robot.knowledge.KnowledgeBaseManager;
 import com.rd.robot.model.*;
 import com.rd.robot.repository.MetaStore;
@@ -30,7 +30,7 @@ public class WorkflowEngine {
     private final KnowledgeBaseManager kbMgr;
     private final MetaStore metaStore;
     private final ClientFactory clientFactory;
-    private final FasttextPredictor ftPredictor;
+    private final FastTextPredictor ftPredictor;
 
     public WorkflowEngine(Config cfg, KnowledgeBaseManager kbMgr, MetaStore metaStore,
                           ClientFactory clientFactory) {
@@ -38,7 +38,7 @@ public class WorkflowEngine {
         this.kbMgr = kbMgr;
         this.metaStore = metaStore;
         this.clientFactory = clientFactory;
-        this.ftPredictor = new FasttextPredictor();
+        this.ftPredictor = new FastTextPredictor();
     }
 
     /** Returns the embedding client (for external debug/test use). */
@@ -47,7 +47,7 @@ public class WorkflowEngine {
     }
 
     /** Returns the fastText predictor (for external debug/test use). */
-    public FasttextPredictor ftPredictor() {
+    public FastTextPredictor ftPredictor() {
         return ftPredictor;
     }
 
