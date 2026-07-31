@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"kb-chat-flow/internal/embedding"
 	"kb-chat-flow/internal/kb"
 	"kb-chat-flow/internal/llm"
 	"kb-chat-flow/internal/model"
@@ -25,10 +26,11 @@ type EngineEvent struct {
 
 // Engine 工作流执行引擎
 type Engine struct {
-	cfg     *model.Config
-	kbMgr   *kb.Manager
-	store   store.MetaStore
-	baseLLM *llm.Client
+	cfg      *model.Config
+	kbMgr    *kb.Manager
+	store    store.MetaStore
+	baseLLM  *llm.Client
+	embClient *embedding.Client
 }
 
 // NewEngine 创建引擎
@@ -40,11 +42,18 @@ func NewEngine(cfg *model.Config, kbMgr *kb.Manager, metaStore store.MetaStore) 
 	)
 	llmClient.SetParams(cfg.LLM.Temperature, cfg.LLM.TopP, cfg.LLM.MaxTokens)
 
+	embClient := embedding.New(
+		cfg.API.EmbeddingAPIURI,
+		cfg.API.EmbeddingAPIKey,
+		cfg.API.EmbeddingModelName,
+	)
+
 	return &Engine{
-		cfg:     cfg,
-		kbMgr:   kbMgr,
-		store:   metaStore,
-		baseLLM: llmClient,
+		cfg:       cfg,
+		kbMgr:     kbMgr,
+		store:     metaStore,
+		baseLLM:   llmClient,
+		embClient: embClient,
 	}
 }
 
@@ -109,7 +118,7 @@ func (e *Engine) ExecuteStream(
 		if workflow.Classifier != nil {
 			slog.Info("classifier start", "workflow", workflow.Name)
 			classifyStart := time.Now()
-			intent := classify(workflow.Classifier, userQuery, e.baseLLM)
+			intent := classify(workflow.Classifier, userQuery, e.baseLLM, e.embClient)
 			classifyElapsed := time.Since(classifyStart)
 
 			classifierOutputVar = workflow.Classifier.OutputVar

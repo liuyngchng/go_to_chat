@@ -4,31 +4,40 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
+	"kb-chat-flow/internal/embedding"
 	"kb-chat-flow/internal/llm"
 	"kb-chat-flow/internal/model"
 )
 
-// classify 意图分类：先走关键词匹配，命中直接返回；否则走 LLM 分类。
+// classify 意图分类：关键词 → 语义匹配 → LLM 兜底。
 // 返回匹配到的 category name，如果全都没命中则返回空串。
-func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client) model.IntentType {
+func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client, embClient *embedding.Client) model.IntentType {
 	if cfg == nil || len(cfg.Categories) == 0 {
 		return ""
 	}
 
-	// 1. 关键词匹配
+	// 1. 关键词匹配（最快，0ms）
 	if name := matchKeyword(userQuery, cfg.Categories); name != "" {
 		return name
 	}
 
-	// 2. LLM 分类兜底
+	// 2. 语义匹配（快，~100ms，比关键词准得多）
+	if embClient != nil {
+		if name := matchSemantic(cfg, userQuery, embClient); name != "" {
+			return name
+		}
+	}
+
+	// 3. LLM 分类（慢但最准，兜底）
 	if llmClient != nil {
 		if name := llmClassify(cfg, userQuery, llmClient); name != "" {
 			return name
 		}
 	}
 
-	// 3. 最终 fallback：返回最后一个类别（通常是一般咨询类）
+	// 4. 最终 fallback：返回最后一个类别（通常是一般咨询类）
 	if len(cfg.Categories) > 0 {
 		fallback := cfg.Categories[len(cfg.Categories)-1].Name
 		slog.Info("classifier fallback", "intent", fallback, "query", userQuery[:min(50, len(userQuery))])
@@ -58,6 +67,170 @@ func matchKeyword(query string, categories []model.IntentCategory) model.IntentT
 
 	return bestMatch
 }
+
+// ============================================================
+// 语义匹配（embedding 向量相似度）
+// ============================================================
+
+// 语义匹配的相似度阈值（0~1），低于此值视为不匹配
+const semanticThreshold = 0.6
+
+// catEmbeddingCache 缓存每个分类器的类别向量
+// key: 分类器各 category 的 name+description+keywords 拼接后的 hash
+var catEmbeddingCache = struct {
+	sync.RWMutex
+	cache map[string][]catVector // key -> 按 categories 顺序的向量
+}{cache: make(map[string][]catVector)}
+
+type catVector struct {
+	name   model.IntentType
+	vector []float64
+}
+
+// matchSemantic 用 embedding 向量相似度做意图匹配。
+// 命中返回 category name，未命中返回空串。
+func matchSemantic(cfg *model.ClassifierDef, userQuery string, embClient *embedding.Client) model.IntentType {
+	// 获取分类别的归一化向量
+	catVecs, err := getCategoryVectors(cfg, embClient)
+	if err != nil {
+		slog.Warn("semantic classifier: failed to get category vectors", "error", err)
+		return ""
+	}
+	if len(catVecs) == 0 {
+		return ""
+	}
+
+	// 计算用户 query 的向量
+	queryVec, err := embClient.EmbedSingle(userQuery)
+	if err != nil {
+		slog.Warn("semantic classifier: failed to embed query", "error", err)
+		return ""
+	}
+
+	// 计算相似度，找到最佳匹配
+	var bestScore float64
+	var bestName model.IntentType
+	for _, cv := range catVecs {
+		score := cosineSimilarity(queryVec, cv.vector)
+		if score > bestScore {
+			bestScore = score
+			bestName = cv.name
+		}
+	}
+
+	if bestScore >= semanticThreshold {
+		slog.Info("classifier semantic matched", "intent", bestName, "score", bestScore, "query", userQuery[:min(50, len(userQuery))])
+		return bestName
+	}
+
+	slog.Info("classifier semantic no match", "best_score", bestScore, "threshold", semanticThreshold)
+	return ""
+}
+
+// getCategoryVectors 获取分类器的各类别向量（带缓存）。
+func getCategoryVectors(cfg *model.ClassifierDef, embClient *embedding.Client) ([]catVector, error) {
+	// 基于类别定义生成缓存 key
+	cacheKey := buildCategoryCacheKey(cfg)
+
+	// 先查缓存
+	catEmbeddingCache.RLock()
+	if cached, ok := catEmbeddingCache.cache[cacheKey]; ok {
+		catEmbeddingCache.RUnlock()
+		return cached, nil
+	}
+	catEmbeddingCache.RUnlock()
+
+	// 构建每个类别的规范化文本
+	catTexts := make([]string, len(cfg.Categories))
+	for i, cat := range cfg.Categories {
+		catTexts[i] = buildCategoryText(cat)
+	}
+
+	// 批量计算向量
+	embeddings, err := embClient.Embed(catTexts)
+	if err != nil {
+		return nil, fmt.Errorf("batch embed categories: %w", err)
+	}
+
+	if len(embeddings) != len(cfg.Categories) {
+		return nil, fmt.Errorf("embedding count mismatch: %d vs %d", len(embeddings), len(cfg.Categories))
+	}
+
+	// 组装结果
+	result := make([]catVector, len(cfg.Categories))
+	for i, cat := range cfg.Categories {
+		result[i] = catVector{name: cat.Name, vector: embeddings[i]}
+	}
+
+	// 写入缓存
+	catEmbeddingCache.Lock()
+	catEmbeddingCache.cache[cacheKey] = result
+	catEmbeddingCache.Unlock()
+
+	return result, nil
+}
+
+// buildCategoryText 将类别定义拼接为一段规范文本用于向量化。
+// 格式：类别描述 + 关键词
+func buildCategoryText(cat model.IntentCategory) string {
+	parts := []string{cat.Description}
+	parts = append(parts, cat.Keywords...)
+	return strings.Join(parts, " ")
+}
+
+// buildCategoryCacheKey 基于分类器定义生成缓存 key。
+// 当类别名、描述或关键词变化时，key 会变，缓存自动失效。
+func buildCategoryCacheKey(cfg *model.ClassifierDef) string {
+	var b strings.Builder
+	b.WriteString(cfg.Prompt)
+	b.WriteString("|")
+	for _, cat := range cfg.Categories {
+		b.WriteString(string(cat.Name))
+		b.WriteString(":")
+		b.WriteString(cat.Description)
+		b.WriteString(":")
+		b.WriteString(strings.Join(cat.Keywords, ","))
+		b.WriteString(";")
+	}
+	return b.String()
+}
+
+// cosineSimilarity 计算两个向量的余弦相似度
+func cosineSimilarity(a, b []float64) float64 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0
+	}
+
+	var dotProd, normA, normB float64
+	for i := range a {
+		dotProd += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+
+	// sqrtFloat defined in faq.go — but we're in engine package, so inline it
+	return dotProd / (sqrtFloat(normA) * sqrtFloat(normB))
+}
+
+// sqrtFloat 简单的平方根（Newton 法，避免引入 math 包）
+func sqrtFloat(x float64) float64 {
+	if x <= 0 {
+		return 0
+	}
+	z := x
+	for i := 0; i < 20; i++ {
+		z = z - (z*z-x)/(2*z)
+	}
+	return z
+}
+
+// ============================================================
+// LLM 分类（兜底）
+// ============================================================
 
 // llmClassify 用 LLM 做意图分类，要求模型输出类别名。
 func llmClassify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client) model.IntentType {
