@@ -5,15 +5,90 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"kb-chat-flow/internal/embedding"
+	"kb-chat-flow/internal/fasttext"
 	"kb-chat-flow/internal/llm"
 	"kb-chat-flow/internal/model"
 )
 
-// classify 意图分类：关键词 → 语义匹配 → LLM 兜底。
+// TierResult 单层分类结果
+type TierResult struct {
+	Name    string  `json:"name"`
+	Matched bool    `json:"matched"`
+	Result  string  `json:"result"`
+	Score   float64 `json:"score,omitempty"`
+	Elapsed int64   `json:"elapsed_ms"`
+	Skipped bool    `json:"skipped,omitempty"`
+}
+
+// ClassifyWithDetails 意图分类（调试用），返回各层详细结果。
+func ClassifyWithDetails(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client, embClient *embedding.Client, ftPredictor *fasttext.Predictor) ([]TierResult, string) {
+	var tiers []TierResult
+
+	if cfg == nil || len(cfg.Categories) == 0 {
+		return tiers, ""
+	}
+
+	// 1. 关键词匹配
+	t0 := time.Now()
+	if name := matchKeyword(userQuery, cfg.Categories); name != "" {
+		tiers = append(tiers, TierResult{Name: "keyword", Matched: true, Result: string(name), Elapsed: time.Since(t0).Milliseconds()})
+		return tiers, string(name)
+	}
+	tiers = append(tiers, TierResult{Name: "keyword", Matched: false, Elapsed: time.Since(t0).Milliseconds()})
+
+	// 2. fastText
+	if ftPredictor != nil {
+		t0 = time.Now()
+		if !ftPredictor.IsTrained() {
+			tiers = append(tiers, TierResult{Name: "fasttext", Skipped: true, Elapsed: time.Since(t0).Milliseconds()})
+		} else if result, ok := ftPredictor.Predict(userQuery); ok {
+			elapsed := time.Since(t0).Milliseconds()
+			if result.Confidence >= fasttext.ConfidenceThreshold {
+				tiers = append(tiers, TierResult{Name: "fasttext", Matched: true, Result: string(result.Label), Score: result.Confidence, Elapsed: elapsed})
+				return tiers, string(result.Label)
+			}
+			tiers = append(tiers, TierResult{Name: "fasttext", Matched: false, Score: result.Confidence, Elapsed: elapsed})
+		} else {
+			tiers = append(tiers, TierResult{Name: "fasttext", Skipped: true, Elapsed: time.Since(t0).Milliseconds()})
+		}
+	}
+
+	// 3. Embedding 语义匹配
+	if embClient != nil {
+		t0 = time.Now()
+		if name := matchSemantic(cfg, userQuery, embClient); name != "" {
+			tiers = append(tiers, TierResult{Name: "embedding", Matched: true, Result: string(name), Elapsed: time.Since(t0).Milliseconds()})
+			return tiers, string(name)
+		}
+		tiers = append(tiers, TierResult{Name: "embedding", Matched: false, Elapsed: time.Since(t0).Milliseconds()})
+	}
+
+	// 4. LLM 分类
+	if llmClient != nil {
+		t0 = time.Now()
+		if name := llmClassify(cfg, userQuery, llmClient); name != "" {
+			tiers = append(tiers, TierResult{Name: "llm", Matched: true, Result: string(name), Elapsed: time.Since(t0).Milliseconds()})
+			return tiers, string(name)
+		}
+		tiers = append(tiers, TierResult{Name: "llm", Matched: false, Elapsed: time.Since(t0).Milliseconds()})
+	}
+
+	// 5. Fallback
+	if len(cfg.Categories) > 0 {
+		fallback := string(cfg.Categories[len(cfg.Categories)-1].Name)
+		tiers = append(tiers, TierResult{Name: "fallback", Matched: true, Result: fallback})
+		return tiers, fallback
+	}
+
+	return tiers, ""
+}
+
+// classify 意图分类：关键词 → 本地模型 → 语义匹配 → LLM 兜底。
 // 返回匹配到的 category name，如果全都没命中则返回空串。
-func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client, embClient *embedding.Client) model.IntentType {
+func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client, embClient *embedding.Client, ftPredictor *fasttext.Predictor) model.IntentType {
 	if cfg == nil || len(cfg.Categories) == 0 {
 		return ""
 	}
@@ -23,21 +98,34 @@ func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client,
 		return name
 	}
 
-	// 2. 语义匹配（快，~100ms，比关键词准得多）
+	// 2. 本地模型（~5ms，比关键词准）
+	if ftPredictor != nil {
+		if !ftPredictor.IsTrained() {
+			slog.Warn("fast_text_model_not_found, skipping_fast_text_tier", "path", "dt/ft/model.ftz")
+		} else if result, ok := ftPredictor.Predict(userQuery); ok {
+			if result.Confidence >= fasttext.ConfidenceThreshold {
+				slog.Info("classifier_fast_text_matched", "intent", result.Label, "confidence", result.Confidence, "query", userQuery[:min(50, len(userQuery))])
+				return result.Label
+			}
+			slog.Info("classifier_fast_text_low_confidence", "label", result.Label, "confidence", result.Confidence, "query", userQuery[:min(50, len(userQuery))])
+		}
+	}
+
+	// 3. 语义匹配（~100ms，embedding 向量相似度）
 	if embClient != nil {
 		if name := matchSemantic(cfg, userQuery, embClient); name != "" {
 			return name
 		}
 	}
 
-	// 3. LLM 分类（慢但最准，兜底）
+	// 4. LLM 分类（慢但最准，兜底）
 	if llmClient != nil {
 		if name := llmClassify(cfg, userQuery, llmClient); name != "" {
 			return name
 		}
 	}
 
-	// 4. 最终 fallback：返回最后一个类别（通常是一般咨询类）
+	// 5. 最终 fallback：返回最后一个类别（通常是一般咨询类）
 	if len(cfg.Categories) > 0 {
 		fallback := cfg.Categories[len(cfg.Categories)-1].Name
 		slog.Info("classifier fallback", "intent", fallback, "query", userQuery[:min(50, len(userQuery))])
@@ -212,7 +300,6 @@ func cosineSimilarity(a, b []float64) float64 {
 		return 0
 	}
 
-	// sqrtFloat defined in faq.go — but we're in engine package, so inline it
 	return dotProd / (sqrtFloat(normA) * sqrtFloat(normB))
 }
 

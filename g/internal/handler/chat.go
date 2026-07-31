@@ -205,6 +205,49 @@ func (h *ChatHandler) chatWithWorkflow(c *gin.Context, req *model.ChatRequest, u
 	}
 }
 
+// TestClassifier 意图分类测试接口 POST /api/classifier/test
+func (h *ChatHandler) TestClassifier(c *gin.Context) {
+	var req struct {
+		Text       string `json:"text" binding:"required"`
+		WorkflowID int64  `json:"workflow_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+
+	if req.WorkflowID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "workflow_id 不能为空"})
+		return
+	}
+
+	// 加载工作流
+	workflow, err := h.store.GetWorkflow(req.WorkflowID)
+	if err != nil || workflow == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "工作流不存在"})
+		return
+	}
+
+	if workflow.Classifier == nil || len(workflow.Classifier.Categories) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "该工作流没有配置意图分类器"})
+		return
+	}
+
+	// 执行分类
+	tiers, final := engine.ClassifyWithDetails(workflow.Classifier, req.Text, h.llmClient, h.engine.EmbClient(), h.engine.FtPredictor())
+
+	var totalMS int64
+	for _, t := range tiers {
+		totalMS += t.Elapsed
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"tiers":    tiers,
+		"final":    final,
+		"total_ms": totalMS,
+	})
+}
+
 // Clear 清空会话
 func (h *ChatHandler) Clear(c *gin.Context) {
 	var req model.ChatRequest

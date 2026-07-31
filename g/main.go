@@ -186,6 +186,9 @@ func main() {
 	{
 		adminAPI.PUT("/config", h.Config.UpdateConfig)
 
+		// 模型连接测试
+		adminAPI.POST("/config/test-models", h.Config.TestModels)
+
 		// FAQ 管理
 		adminAPI.POST("/faq", h.Faq.Create)
 		adminAPI.POST("/faq/upload", h.Faq.Upload)
@@ -211,6 +214,9 @@ func main() {
 		adminAPI.GET("/workflows/:id", h.Workflow.Get)
 		adminAPI.PUT("/workflows/:id", h.Workflow.Update)
 		adminAPI.DELETE("/workflows/:id", h.Workflow.Delete)
+
+		// 意图分类测试
+		adminAPI.POST("/classifier/test", h.Chat.TestClassifier)
 	}
 
 	// 用户自助 API（受 sys.api_auth 开关控制）

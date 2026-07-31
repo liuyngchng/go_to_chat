@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"kb-chat-flow/internal/embedding"
+	"kb-chat-flow/internal/fasttext"
 	"kb-chat-flow/internal/kb"
 	"kb-chat-flow/internal/llm"
 	"kb-chat-flow/internal/model"
@@ -26,11 +27,12 @@ type EngineEvent struct {
 
 // Engine 工作流执行引擎
 type Engine struct {
-	cfg      *model.Config
-	kbMgr    *kb.Manager
-	store    store.MetaStore
-	baseLLM  *llm.Client
-	embClient *embedding.Client
+	cfg         *model.Config
+	kbMgr       *kb.Manager
+	store       store.MetaStore
+	baseLLM     *llm.Client
+	embClient   *embedding.Client
+	ftPredictor *fasttext.Predictor
 }
 
 // NewEngine 创建引擎
@@ -49,11 +51,12 @@ func NewEngine(cfg *model.Config, kbMgr *kb.Manager, metaStore store.MetaStore) 
 	)
 
 	return &Engine{
-		cfg:       cfg,
-		kbMgr:     kbMgr,
-		store:     metaStore,
-		baseLLM:   llmClient,
-		embClient: embClient,
+		cfg:         cfg,
+		kbMgr:       kbMgr,
+		store:       metaStore,
+		baseLLM:     llmClient,
+		embClient:   embClient,
+		ftPredictor: fasttext.New(),
 	}
 }
 
@@ -116,9 +119,14 @@ func (e *Engine) ExecuteStream(
 
 		// 4. 意图分类（如果工作流配置了 Classifier）
 		if workflow.Classifier != nil {
+
+			// 确保 fastText 模型已训练（从类别关键词自动生成训练数据）
+			if err := e.ftPredictor.Train(workflow.Classifier.Categories, workflow.Classifier.Prompt); err != nil {
+				slog.Warn("fastText train failed, will skip fastText tier", "error", err)
+			}
 			slog.Info("classifier start", "workflow", workflow.Name)
 			classifyStart := time.Now()
-			intent := classify(workflow.Classifier, userQuery, e.baseLLM, e.embClient)
+			intent := classify(workflow.Classifier, userQuery, e.baseLLM, e.embClient, e.ftPredictor)
 			classifyElapsed := time.Since(classifyStart)
 
 			classifierOutputVar = workflow.Classifier.OutputVar
@@ -326,4 +334,14 @@ func (e *Engine) Execute(
 	}
 
 	return result.String(), lastErr
+}
+
+// EmbClient 返回 embedding 客户端（供外部调试用）
+func (e *Engine) EmbClient() *embedding.Client {
+	return e.embClient
+}
+
+// FtPredictor 返回 fastText 预测器（供外部调试用）
+func (e *Engine) FtPredictor() *fasttext.Predictor {
+	return e.ftPredictor
 }

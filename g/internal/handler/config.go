@@ -2,10 +2,15 @@ package handler
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"kb-chat-flow/internal/config"
+	"kb-chat-flow/internal/embedding"
+	"kb-chat-flow/internal/llm"
 	"kb-chat-flow/internal/model"
+	"kb-chat-flow/internal/rerank"
 	"kb-chat-flow/internal/store"
 
 	"github.com/gin-gonic/gin"
@@ -243,6 +248,81 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// TestModels 测试模型 API 连接 POST /api/config/test-models
+func (h *ConfigHandler) TestModels(c *gin.Context) {
+	var req APIConfigResp
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+
+	type ModelTestResult struct {
+		Name    string `json:"name"`
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+		Elapsed int64  `json:"elapsed_ms"`
+	}
+	var results []ModelTestResult
+
+	// 1. 测试 LLM 对话模型
+	if req.LLMAPIURI != "" {
+		t0 := time.Now()
+		client := llm.New(req.LLMAPIURI, req.LLMAPIKey, req.LLMModelName)
+		_, err := client.Chat("你是一个助手，请回复 OK。", "hi")
+		elapsed := time.Since(t0).Milliseconds()
+		if err != nil {
+			slog.Warn("model test: LLM failed", "error", err)
+			results = append(results, ModelTestResult{Name: "LLM 对话模型", OK: false, Message: err.Error(), Elapsed: elapsed})
+		} else {
+			results = append(results, ModelTestResult{Name: "LLM 对话模型", OK: true, Message: "连接成功", Elapsed: elapsed})
+		}
+	} else {
+		results = append(results, ModelTestResult{Name: "LLM 对话模型", OK: false, Message: "未配置 API 地址"})
+	}
+
+	// 2. 测试 Embedding 向量模型
+	if req.EmbeddingAPIURI != "" {
+		t0 := time.Now()
+		client := embedding.New(req.EmbeddingAPIURI, req.EmbeddingAPIKey, req.EmbeddingModelName)
+		dim, err := client.Dimension()
+		elapsed := time.Since(t0).Milliseconds()
+		if err != nil {
+			slog.Warn("model test: Embedding failed", "error", err)
+			results = append(results, ModelTestResult{Name: "Embedding 向量模型", OK: false, Message: err.Error(), Elapsed: elapsed})
+		} else {
+			results = append(results, ModelTestResult{Name: "Embedding 向量模型", OK: true, Message: fmt.Sprintf("连接成功 (dim=%d)", dim), Elapsed: elapsed})
+		}
+	} else {
+		results = append(results, ModelTestResult{Name: "Embedding 向量模型", OK: false, Message: "未配置 API 地址"})
+	}
+
+	// 3. 测试 Rerank 重排序模型
+	if req.RerankAPIURI != "" {
+		t0 := time.Now()
+		client := rerank.New(req.RerankAPIURI, req.RerankAPIKey, req.RerankModelName)
+		_, err := client.Rerank("test", []string{"hello world", "goodbye"}, 1)
+		elapsed := time.Since(t0).Milliseconds()
+		if err != nil {
+			slog.Warn("model test: Rerank failed", "error", err)
+			results = append(results, ModelTestResult{Name: "Rerank 重排序模型", OK: false, Message: err.Error(), Elapsed: elapsed})
+		} else {
+			results = append(results, ModelTestResult{Name: "Rerank 重排序模型", OK: true, Message: "连接成功", Elapsed: elapsed})
+		}
+	} else {
+		results = append(results, ModelTestResult{Name: "Rerank 重排序模型", OK: false, Message: "未配置 API 地址"})
+	}
+
+	allOK := true
+	for _, r := range results {
+		if !r.OK {
+			allOK = false
+			break
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"results": results, "all_ok": allOK})
 }
 
 // getPrompt 从数据库获取提示词模板
