@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"kb-chat-flow/internal/embedding"
@@ -17,12 +18,22 @@ import (
 
 // EngineEvent 工作流执行事件
 type EngineEvent struct {
-	Type    string `json:"type"` // "progress" | "chunk" | "done" | "error"
-	Step    int    `json:"step"`
-	Total   int    `json:"total"`
-	Agent   string `json:"agent"`
-	Content string `json:"content"` // chunk 或 error 内容
-	Error   error  `json:"-"`       // 内部使用
+	Type          string `json:"type"`                      // "progress" | "chunk" | "done" | "error"
+	Step          int    `json:"step"`
+	Total         int    `json:"total"`
+	Agent         string `json:"agent"`
+	Content       string `json:"content"`                    // chunk 或 error 内容
+	NodeID        string `json:"node_id,omitempty"`          // 节点 ID（DAG 模式）
+	ParallelGroup string `json:"parallel_group,omitempty"`   // 并行组名（DAG 模式）
+	Error         error  `json:"-"`                          // 内部使用
+}
+
+// dagNode DAG 调度内部节点
+type dagNode struct {
+	Node     model.WorkflowNode
+	InDegree int
+	OutEdges []string // 下游节点 ID
+	Level    int      // 拓扑层级
 }
 
 // Engine 工作流执行引擎
@@ -147,127 +158,11 @@ func (e *Engine) ExecuteStream(
 			slog.Info("classifier done", "workflow", workflow.Name, "intent", intent, "duration_ms", classifyElapsed.Milliseconds(), "query", userQuery[:min(50, len(userQuery))])
 		}
 
-		// 5. 顺序执行每个节点（跳过 Condition 不匹配的）
-		slog.Info("workflow nodes start", "workflow", workflow.Name, "total_nodes", total, "classifier_result", vars[classifierOutputVar])
-		for i, node := range nodes {
-			// 条件路由：有 Condition 但不匹配 → 跳过
-			if node.Condition != "" {
-				if model.IntentType(vars[classifierOutputVar]) != node.Condition {
-					slog.Info("skip node by condition", "workflow", workflow.Name, "node", node.ID, "agent_name", node.AgentName, "condition", node.Condition, "current_intent", vars[classifierOutputVar])
-					continue
-				}
-			}
-
-			// 加载 Agent
-			agent, err := e.store.GetAgent(node.AgentID)
-			if err != nil || agent == nil {
-				slog.Error("agent not found", "node", node.ID, "agent_id", node.AgentID, "error", err)
-				eventCh <- EngineEvent{
-					Type:    "error",
-					Content: fmt.Sprintf("节点 %s 引用的智能体 (ID: %d) 不存在", node.ID, node.AgentID),
-					Error:   fmt.Errorf("agent %d not found", node.AgentID),
-				}
-				return
-			}
-
-			// 发送进度事件
-			eventCh <- EngineEvent{
-				Type:  "progress",
-				Step:  i + 1,
-				Total: total,
-				Agent: agent.Name,
-			}
-
-			slog.Info("node start", "workflow", workflow.Name, "step", i+1, "total", total, "node", node.ID, "agent", agent.Name, "is_final", node.IsFinal)
-
-			// 渲染输入模板
-			input := ResolveTemplate(node.InputTemplate, vars)
-			slog.Info("node input ready", "node", node.ID, "agent", agent.Name, "input_len", len(input), "input_preview", input[:min(80, len(input))])
-
-			// 知识库检索（如果 agent 绑定了 vdb_ids）
-			if agent.VdbIDs != "" && agent.VdbIDs != "[]" {
-				var vdbIDs []int64
-				if err := json.Unmarshal([]byte(agent.VdbIDs), &vdbIDs); err == nil && len(vdbIDs) > 0 {
-					slog.Info("kb search start", "node", node.ID, "agent", agent.Name, "vdb_ids", vdbIDs)
-					kbStart := time.Now()
-					var kbContext strings.Builder
-					for _, vdbID := range vdbIDs {
-						ctx, err := e.kbMgr.SearchInKB(userQuery, vdbID, uid, e.cfg.KB.TopK, e.cfg.KB.ScoreThreshold)
-						if err == nil && ctx != "" {
-							kbContext.WriteString(ctx)
-							kbContext.WriteString("\n")
-						}
-					}
-					vars["sys.kb_context"] = kbContext.String()
-					kbElapsed := time.Since(kbStart)
-					slog.Info("kb search done", "node", node.ID, "agent", agent.Name, "kb_context_len", len(vars["sys.kb_context"]), "duration_ms", kbElapsed.Milliseconds())
-				}
-			}
-
-			// 构建 system prompt（走模板渲染，支持 {{sys.xxx}} 变量）
-			systemPrompt := ResolveTemplate(agent.SystemPrompt, vars)
-
-			// 选择 LLM 客户端（使用 Agent 特定的参数，或默认）
-			llmClient := e.getLLMClient(agent)
-			slog.Info("llm call start", "node", node.ID, "agent", agent.Name, "model", llmClient.ModelName, "system_prompt_len", len(systemPrompt))
-
-			llmStart := time.Now()
-
-			if node.IsFinal || i == total-1 {
-				// 最终节点：流式输出
-				chunkCh, errCh := llmClient.ChatStream(systemPrompt, input)
-
-				totalChunks := 0
-				for chunk := range chunkCh {
-					totalChunks++
-					eventCh <- EngineEvent{
-						Type:    "chunk",
-						Step:    i + 1,
-						Total:   total,
-						Agent:   agent.Name,
-						Content: chunk,
-					}
-				}
-
-				// 检查流式错误
-				select {
-				case err := <-errCh:
-					if err != nil {
-						slog.Error("node stream error", "node", node.ID, "agent", agent.Name, "error", err)
-						eventCh <- EngineEvent{
-							Type:    "chunk",
-							Step:    i + 1,
-							Total:   total,
-							Agent:   agent.Name,
-							Content: fmt.Sprintf("[错误] %v", err),
-						}
-					}
-				default:
-				}
-
-				llmElapsed := time.Since(llmStart)
-				slog.Info("node done", "node", node.ID, "agent", agent.Name, "type", "stream", "duration_ms", llmElapsed.Milliseconds(), "chunks", totalChunks)
-			} else {
-				// 非最终节点：同步调用
-				fullOutput, err := llmClient.Chat(systemPrompt, input)
-				llmElapsed := time.Since(llmStart)
-
-				if err != nil {
-					slog.Error("node error", "node", node.ID, "agent", agent.Name, "error", err, "duration_ms", llmElapsed.Milliseconds())
-					fullOutput = fmt.Sprintf("[错误] %v", err)
-				} else {
-					outputPreview := fullOutput
-					if len(outputPreview) > 80 {
-						outputPreview = outputPreview[:80]
-					}
-					slog.Info("node done", "node", node.ID, "agent", agent.Name, "type", "sync", "duration_ms", llmElapsed.Milliseconds(), "output_len", len(fullOutput), "output_preview", outputPreview)
-				}
-
-				// 存储输出到变量池（供下游引用）
-				vars[node.OutputVar] = fullOutput
-				// 也用 node.ID 做 key（双 key，灵活引用）
-				vars[node.ID] = fullOutput
-			}
+		// 5. 执行节点（DAG 或线性模式）
+		if hasNextNodes(nodes) {
+			e.executeDAG(eventCh, workflow, nodes, vars, classifierOutputVar, uid, userQuery)
+		} else {
+			e.executeLinear(eventCh, nodes, vars, classifierOutputVar, uid, userQuery, total)
 		}
 
 		// 发送完成事件
@@ -276,6 +171,460 @@ func (e *Engine) ExecuteStream(
 	}()
 
 	return eventCh
+}
+
+// ============================================================
+// DAG 执行引擎
+// ============================================================
+
+// hasNextNodes 判断是否使用 DAG 模式（任一节点有 NextNodes 即为 DAG）
+func hasNextNodes(nodes []model.WorkflowNode) bool {
+	for _, n := range nodes {
+		if len(n.NextNodes) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// buildDAG 从节点列表构建 DAG 邻接表
+func buildDAG(nodes []model.WorkflowNode) (map[string]*dagNode, error) {
+	dag := make(map[string]*dagNode, len(nodes))
+
+	// 初始化所有节点
+	for _, n := range nodes {
+		dag[n.ID] = &dagNode{
+			Node:     n,
+			InDegree: 0,
+			OutEdges: n.NextNodes,
+		}
+	}
+
+	// 计算入度
+	for _, dn := range dag {
+		for _, targetID := range dn.OutEdges {
+			target, ok := dag[targetID]
+			if !ok {
+				return nil, fmt.Errorf("节点 %s 引用了不存在的下游节点 %s", dn.Node.ID, targetID)
+			}
+			target.InDegree++
+		}
+	}
+
+	return dag, nil
+}
+
+// topologicalLevels Kahn 算法分层，返回按层级分组的节点
+func topologicalLevels(dag map[string]*dagNode) ([][]model.WorkflowNode, error) {
+	// 收集入度为 0 的节点
+	queue := make([]*dagNode, 0)
+	for _, dn := range dag {
+		if dn.InDegree == 0 {
+			queue = append(queue, dn)
+		}
+	}
+
+	var levels [][]model.WorkflowNode
+	processed := 0
+	total := len(dag)
+
+	for len(queue) > 0 {
+		levelSize := len(queue)
+		level := make([]model.WorkflowNode, 0, levelSize)
+		nextQueue := make([]*dagNode, 0)
+
+		for i := 0; i < levelSize; i++ {
+			dn := queue[i]
+			dn.Level = len(levels)
+			level = append(level, dn.Node)
+			processed++
+
+			for _, targetID := range dn.OutEdges {
+				target := dag[targetID]
+				target.InDegree--
+				if target.InDegree == 0 {
+					nextQueue = append(nextQueue, target)
+				}
+			}
+		}
+
+		levels = append(levels, level)
+		queue = nextQueue
+	}
+
+	if processed != total {
+		return nil, fmt.Errorf("工作流图中存在循环依赖，无法执行")
+	}
+
+	return levels, nil
+}
+
+// ValidateWorkflowGraph 验证工作流图的有效性
+func ValidateWorkflowGraph(nodes []model.WorkflowNode) error {
+	if len(nodes) == 0 {
+		return fmt.Errorf("工作流至少需要一个节点")
+	}
+
+	// 检查所有 NextNodes 引用是否存在
+	nodeIDs := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		nodeIDs[n.ID] = true
+	}
+	for _, n := range nodes {
+		for _, targetID := range n.NextNodes {
+			if !nodeIDs[targetID] {
+				return fmt.Errorf("节点 %s 引用了不存在的下游节点 %s", n.ID, targetID)
+			}
+			// 检查自循环
+			if targetID == n.ID {
+				return fmt.Errorf("节点 %s 不能引用自身", n.ID)
+			}
+		}
+	}
+
+	// 检查循环依赖
+	_, err := buildDAG(nodes)
+	if err != nil {
+		return err
+	}
+	dag, _ := buildDAG(nodes)
+	_, err = topologicalLevels(dag)
+	if err != nil {
+		return err
+	}
+
+	// 检查至少有一个 sink 节点（没有下游节点）
+	hasSink := false
+	for _, n := range nodes {
+		if len(n.NextNodes) == 0 {
+			hasSink = true
+			break
+		}
+	}
+	if !hasSink {
+		return fmt.Errorf("工作流图必须至少有一个终点节点（无下游节点）")
+	}
+
+	return nil
+}
+
+// executeLinear 线性执行模式（保持向后兼容）
+func (e *Engine) executeLinear(
+	eventCh chan<- EngineEvent,
+	nodes []model.WorkflowNode,
+	vars map[string]string,
+	classifierOutputVar string,
+	uid string,
+	userQuery string,
+	total int,
+) {
+	slog.Info("workflow nodes start (linear)", "total_nodes", total)
+	for i, node := range nodes {
+		// 条件路由：有 Condition 但不匹配 → 跳过
+		if node.Condition != "" {
+			if model.IntentType(vars[classifierOutputVar]) != node.Condition {
+				slog.Info("skip node by condition", "node", node.ID, "agent_name", node.AgentName, "condition", node.Condition, "current_intent", vars[classifierOutputVar])
+				continue
+			}
+		}
+
+		evt := e.executeNode(node, i+1, total, vars, uid, userQuery, classifierOutputVar)
+		if evt != nil {
+			eventCh <- *evt
+			if evt.Type == "error" {
+				return
+			}
+		}
+	}
+}
+
+// executeDAG DAG 模式执行
+func (e *Engine) executeDAG(
+	eventCh chan<- EngineEvent,
+	workflow *model.WorkflowDef,
+	nodes []model.WorkflowNode,
+	vars map[string]string,
+	classifierOutputVar string,
+	uid string,
+	userQuery string,
+) {
+	slog.Info("workflow nodes start (DAG)", "total_nodes", len(nodes))
+
+	dag, err := buildDAG(nodes)
+	if err != nil {
+		eventCh <- EngineEvent{Type: "error", Content: "构建执行图失败: " + err.Error(), Error: err}
+		return
+	}
+
+	levels, err := topologicalLevels(dag)
+	if err != nil {
+		eventCh <- EngineEvent{Type: "error", Content: "工作流图拓扑排序失败: " + err.Error(), Error: err}
+		return
+	}
+
+	slog.Info("dag levels computed", "levels", len(levels))
+	for li, level := range levels {
+		slog.Info("dag level start", "level", li+1, "nodes", len(level), "total_levels", len(levels))
+		if len(level) == 1 {
+			// 单节点：同步执行
+			node := level[0]
+			// 条件路由检查
+			if node.Condition != "" {
+				if model.IntentType(vars[classifierOutputVar]) != node.Condition {
+					slog.Info("skip node by condition (DAG)", "node", node.ID, "agent_name", node.AgentName, "condition", node.Condition)
+					// 跳过此节点及其下游
+					continue
+				}
+			}
+			evt := e.executeNode(node, li+1, len(levels), vars, uid, userQuery, classifierOutputVar)
+			if evt != nil {
+				eventCh <- *evt
+				if evt.Type == "error" {
+					return
+				}
+			}
+		} else {
+			// 多节点：并行执行
+			e.executeParallelLevel(eventCh, level, li+1, len(levels), vars, uid, userQuery, classifierOutputVar)
+		}
+	}
+}
+
+// executeParallelLevel 并行执行同一层级的多个节点
+func (e *Engine) executeParallelLevel(
+	eventCh chan<- EngineEvent,
+	level []model.WorkflowNode,
+	step int,
+	total int,
+	vars map[string]string,
+	uid string,
+	userQuery string,
+	classifierOutputVar string,
+) {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	hasError := false
+
+	for _, node := range level {
+		wg.Add(1)
+		go func(n model.WorkflowNode) {
+			defer wg.Done()
+
+			// 条件路由
+			if n.Condition != "" {
+				mu.Lock()
+				intent := vars[classifierOutputVar]
+				mu.Unlock()
+				if model.IntentType(intent) != n.Condition {
+					slog.Info("skip node by condition (DAG parallel)", "node", n.ID, "agent_name", n.AgentName, "condition", n.Condition)
+					mu.Lock()
+					eventCh <- EngineEvent{
+						Type:          "progress",
+						Step:          step,
+						Total:         total,
+						Agent:         n.AgentName + " (已跳过)",
+						NodeID:        n.ID,
+						ParallelGroup: n.ParallelGroup,
+					}
+					mu.Unlock()
+					return
+				}
+			}
+
+			// 发送进度事件
+			progressLabel := n.AgentName
+			if n.ParallelGroup != "" {
+				progressLabel = "[并行:" + n.ParallelGroup + "] " + n.AgentName
+			} else {
+				progressLabel = "[并行] " + n.AgentName
+			}
+			mu.Lock()
+			eventCh <- EngineEvent{
+				Type:          "progress",
+				Step:          step,
+				Total:         total,
+				Agent:         progressLabel,
+				NodeID:        n.ID,
+				ParallelGroup: n.ParallelGroup,
+			}
+			mu.Unlock()
+
+			evt := e.executeNodeInternal(n, step, total, vars, uid, userQuery, classifierOutputVar, &mu)
+
+			if evt != nil {
+				mu.Lock()
+				if evt.Type == "error" {
+					hasError = true
+				}
+				eventCh <- *evt
+				mu.Unlock()
+			}
+		}(node)
+	}
+
+	wg.Wait()
+
+	if hasError {
+		slog.Warn("parallel level had errors, continuing")
+	}
+}
+
+// executeNode DAG 模式的单节点执行（包装 executeNodeInternal，带 mutex）
+func (e *Engine) executeNode(
+	node model.WorkflowNode,
+	step int,
+	total int,
+	vars map[string]string,
+	uid string,
+	userQuery string,
+	classifierOutputVar string,
+) *EngineEvent {
+	return e.executeNodeInternal(node, step, total, vars, uid, userQuery, classifierOutputVar, nil)
+}
+
+// executeNodeInternal 执行单个节点（核心逻辑），mu 非 nil 时加锁访问 vars
+func (e *Engine) executeNodeInternal(
+	node model.WorkflowNode,
+	step int,
+	total int,
+	vars map[string]string,
+	uid string,
+	userQuery string,
+	classifierOutputVar string,
+	mu *sync.Mutex,
+) *EngineEvent {
+	// 加载 Agent
+	agent, err := e.store.GetAgent(node.AgentID)
+	if err != nil || agent == nil {
+		slog.Error("agent not found", "node", node.ID, "agent_id", node.AgentID, "error", err)
+		return &EngineEvent{
+			Type:    "error",
+			Content: fmt.Sprintf("节点 %s 引用的智能体 (ID: %d) 不存在", node.ID, node.AgentID),
+			Error:   fmt.Errorf("agent %d not found", node.AgentID),
+		}
+	}
+
+	// 发送进度事件（非并行模式由调用者发，这里做 fallback）
+	if mu == nil {
+		slog.Info("node start", "node", node.ID, "agent", agent.Name, "step", step, "total", total)
+	}
+
+	// 渲染输入模板（读 vars 需加锁）
+	if mu != nil {
+		mu.Lock()
+	}
+	input := ResolveTemplate(node.InputTemplate, vars)
+	if mu != nil {
+		mu.Unlock()
+	}
+	slog.Info("node input ready", "node", node.ID, "agent", agent.Name, "input_len", len(input))
+
+	// 知识库检索
+	if agent.VdbIDs != "" && agent.VdbIDs != "[]" {
+		var vdbIDs []int64
+		if err := json.Unmarshal([]byte(agent.VdbIDs), &vdbIDs); err == nil && len(vdbIDs) > 0 {
+			slog.Info("kb search start", "node", node.ID, "agent", agent.Name, "vdb_ids", vdbIDs)
+			kbStart := time.Now()
+			var kbContext strings.Builder
+			for _, vdbID := range vdbIDs {
+				ctx, err := e.kbMgr.SearchInKB(userQuery, vdbID, uid, e.cfg.KB.TopK, e.cfg.KB.ScoreThreshold)
+				if err == nil && ctx != "" {
+					kbContext.WriteString(ctx)
+					kbContext.WriteString("\n")
+				}
+			}
+			if mu != nil {
+				mu.Lock()
+			}
+			vars["sys.kb_context"] = kbContext.String()
+			if mu != nil {
+				mu.Unlock()
+			}
+			kbElapsed := time.Since(kbStart)
+			slog.Info("kb search done", "node", node.ID, "agent", agent.Name, "kb_context_len", len(kbContext.String()), "duration_ms", kbElapsed.Milliseconds())
+		}
+	}
+
+	// 构建 system prompt（读 vars 需加锁）
+	if mu != nil {
+		mu.Lock()
+	}
+	systemPrompt := ResolveTemplate(agent.SystemPrompt, vars)
+	if mu != nil {
+		mu.Unlock()
+	}
+
+	// LLM 调用
+	llmClient := e.getLLMClient(agent)
+	slog.Info("llm call start", "node", node.ID, "agent", agent.Name, "model", llmClient.ModelName, "system_prompt_len", len(systemPrompt))
+	llmStart := time.Now()
+
+	// 判断是否为最终节点（无下游节点）
+	noOutEdges := len(node.NextNodes) == 0
+	isFinal := node.IsFinal || noOutEdges
+
+	if isFinal {
+		// 最终节点：同步调用（DAG 模式下流式输出在全并行场景下会冲突）
+		fullOutput, err := llmClient.Chat(systemPrompt, input)
+		llmElapsed := time.Since(llmStart)
+
+		if err != nil {
+			slog.Error("node error", "node", node.ID, "agent", agent.Name, "error", err, "duration_ms", llmElapsed.Milliseconds())
+			return &EngineEvent{
+				Type:    "chunk",
+				Content: fmt.Sprintf("[错误] %v", err),
+				Step:    step,
+				Total:   total,
+				Agent:   agent.Name,
+				NodeID:  node.ID,
+			}
+		}
+		slog.Info("node done", "node", node.ID, "agent", agent.Name, "type", "sync", "duration_ms", llmElapsed.Milliseconds(), "output_len", len(fullOutput))
+
+		// 存储输出 + 发送 chunk
+		if mu != nil {
+			mu.Lock()
+		}
+		vars[node.OutputVar] = fullOutput
+		vars[node.ID] = fullOutput
+		if mu != nil {
+			mu.Unlock()
+		}
+		return &EngineEvent{
+			Type:    "chunk",
+			Content: fullOutput,
+			Step:    step,
+			Total:   total,
+			Agent:   agent.Name,
+			NodeID:  node.ID,
+		}
+	}
+
+	// 非最终节点：同步调用
+	fullOutput, err := llmClient.Chat(systemPrompt, input)
+	llmElapsed := time.Since(llmStart)
+
+	if err != nil {
+		slog.Error("node error", "node", node.ID, "agent", agent.Name, "error", err, "duration_ms", llmElapsed.Milliseconds())
+		fullOutput = fmt.Sprintf("[错误] %v", err)
+	} else {
+		outputPreview := fullOutput
+		if len(outputPreview) > 80 {
+			outputPreview = outputPreview[:80]
+		}
+		slog.Info("node done", "node", node.ID, "agent", agent.Name, "type", "sync", "duration_ms", llmElapsed.Milliseconds(), "output_len", len(fullOutput), "output_preview", outputPreview)
+	}
+
+	// 存储输出到变量池
+	if mu != nil {
+		mu.Lock()
+	}
+	vars[node.OutputVar] = fullOutput
+	vars[node.ID] = fullOutput
+	if mu != nil {
+		mu.Unlock()
+	}
+	return nil
 }
 
 // getLLMClient 获取 LLM 客户端（使用 Agent 特定参数或默认）

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"kb-chat-flow/internal/engine"
 	"kb-chat-flow/internal/model"
 	"kb-chat-flow/internal/store"
 
@@ -98,8 +99,18 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// 自动标记最后一个节点为 final
-	req.Nodes[len(req.Nodes)-1].IsFinal = true
+	// DAG 模式：验证图结构
+	if hasNextNodes(req.Nodes) {
+		if err := engine.ValidateWorkflowGraph(req.Nodes); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "工作流图验证失败: " + err.Error()})
+			return
+		}
+		// 自动检测 IsFinal：无下游节点的即为 sink
+		autoDetectIsFinal(req.Nodes)
+	} else {
+		// 线性模式：自动标记最后一个节点为 final
+		req.Nodes[len(req.Nodes)-1].IsFinal = true
+	}
 
 	workflow := &model.WorkflowDef{
 		Name:        req.Name,
@@ -146,9 +157,19 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// 自动标记最后一个节点为 final，其余为 false
-	for i := range req.Nodes {
-		req.Nodes[i].IsFinal = (i == len(req.Nodes)-1)
+	// DAG 模式：验证图结构
+	if hasNextNodes(req.Nodes) {
+		if err := engine.ValidateWorkflowGraph(req.Nodes); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "工作流图验证失败: " + err.Error()})
+			return
+		}
+		// 自动检测 IsFinal：无下游节点的即为 sink
+		autoDetectIsFinal(req.Nodes)
+	} else {
+		// 线性模式：自动标记最后一个节点为 final，其余为 false
+		for i := range req.Nodes {
+			req.Nodes[i].IsFinal = (i == len(req.Nodes)-1)
+		}
 	}
 
 	workflow := &model.WorkflowDef{
@@ -181,4 +202,29 @@ func (h *WorkflowHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// hasNextNodes 判断节点列表中是否包含 DAG 边定义
+func hasNextNodes(nodes []model.WorkflowNode) bool {
+	for _, n := range nodes {
+		if len(n.NextNodes) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// autoDetectIsFinal 自动检测 DAG 模式下的最终节点：
+// 没有下游节点的即为 sink（IsFinal = true），其余为 false
+func autoDetectIsFinal(nodes []model.WorkflowNode) {
+	// 收集所有被引用的节点 ID
+	referenced := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		for _, target := range n.NextNodes {
+			referenced[target] = true
+		}
+	}
+	for i := range nodes {
+		nodes[i].IsFinal = !referenced[nodes[i].ID]
+	}
 }

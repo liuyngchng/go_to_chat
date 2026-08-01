@@ -373,14 +373,16 @@ type AgentListItem struct {
 
 // WorkflowNode 工作流中的一个步骤节点
 type WorkflowNode struct {
-	ID            string     `json:"id"`                  // 节点唯一 ID，前端生成
-	AgentID       int64      `json:"agent_id"`            // 引用哪个 Agent
-	AgentName     string     `json:"agent_name"`          // 冗余展示用
-	InputTemplate string     `json:"input_template"`      // 输入模板，用 {{var}} 引用上游变量
-	OutputVar     string     `json:"output_var"`          // 本节点输出变量名
-	OrderIndex    int        `json:"order_index"`         // 执行顺序，0-based
-	IsFinal       bool       `json:"is_final"`            // 是否最终输出节点
-	Condition     IntentType `json:"condition,omitempty"` // 分类路由条件：匹配 Classifier 输出的 category name，空 = 无条件执行
+	ID            string     `json:"id"`                       // 节点唯一 ID，前端生成
+	AgentID       int64      `json:"agent_id"`                 // 引用哪个 Agent
+	AgentName     string     `json:"agent_name"`               // 冗余展示用
+	InputTemplate string     `json:"input_template"`           // 输入模板，用 {{var}} 引用上游变量
+	OutputVar     string     `json:"output_var"`               // 本节点输出变量名
+	OrderIndex    int        `json:"order_index"`              // 执行顺序，0-based（线性模式使用）
+	IsFinal       bool       `json:"is_final"`                 // 是否最终输出节点
+	Condition     IntentType `json:"condition,omitempty"`      // 分类路由条件：匹配 Classifier 输出的 category name，空 = 无条件执行
+	NextNodes     []string   `json:"next_nodes,omitempty"`     // DAG 模式：下游节点 ID 列表，空 = 线性模式
+	ParallelGroup string     `json:"parallel_group,omitempty"` // DAG 模式：相同 group 的节点并行执行
 }
 
 // IntentType 意图分类枚举类型

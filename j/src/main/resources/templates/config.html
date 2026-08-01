@@ -372,6 +372,82 @@
             .cfg-form-group select { max-width: 100%; }
             .cfg-iframe { min-height: 800px; }
         }
+
+        /* ============================================================
+           工作流编辑器
+           ============================================================ */
+        .wf-node-card {
+            position: absolute;
+            background: #fff;
+            border: 2px solid #e0e3e8;
+            border-radius: 10px;
+            padding: 10px 14px;
+            width: 180px;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            transition: border-color 0.2s, box-shadow 0.2s;
+            z-index: 1;
+        }
+        .wf-node-card:hover { border-color: #4b6cb7; box-shadow: 0 4px 12px rgba(75,108,183,0.2); }
+        .wf-node-card.selected { border-color: #4b6cb7; box-shadow: 0 0 0 3px rgba(75,108,183,0.15); }
+        .wf-node-card .wf-node-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #333;
+            display: block;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .wf-node-card .wf-node-info {
+            font-size: 0.7rem;
+            color: #999;
+            display: block;
+        }
+        .wf-node-card .wf-node-cond {
+            display: block;
+            font-size: 0.68rem;
+            color: #4b6cb7;
+            font-weight: 500;
+        }
+        .wf-node-card .wf-node-final {
+            display: inline-block;
+            background: #2e7d32;
+            color: #fff;
+            font-size: 0.6rem;
+            padding: 1px 6px;
+            border-radius: 3px;
+            margin-top: 3px;
+        }
+        .wf-node-handle {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4b6cb7;
+            border: 2px solid #fff;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 2;
+            pointer-events: auto;
+        }
+        .wf-node-handle.wf-handle-out { right: -6px; cursor: crosshair; }
+        .wf-node-handle.wf-handle-in { left: -6px; }
+        .wf-category-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+        .wf-category-row input {
+            flex: 1;
+            min-width: 0;
+            padding: 6px 10px;
+            border: 1px solid #e0e3e8;
+            border-radius: 6px;
+            font-size: 0.82rem;
+        }
     </style>
 </head>
 <body>
@@ -414,6 +490,10 @@
                 <div class="cfg-sidebar-divider"></div>
                 <div class="cfg-tab" data-tab="intent">
                     <i class="fas fa-brain"></i> 意图测试
+                </div>
+                <div class="cfg-sidebar-divider"></div>
+                <div class="cfg-tab" data-tab="workflows">
+                    <i class="fas fa-project-diagram"></i> 工作流编排
                 </div>
             </nav>
 
@@ -849,6 +929,7 @@
                             </form>
                         </div>
                     </div>
+                </div>
                 <!-- 意图分类测试 -->
                 <div class="cfg-section" id="section-intent">
                     <h2><i class="fas fa-brain"></i> 意图识别测试</h2>
@@ -886,6 +967,89 @@
                             </thead>
                             <tbody id="intentTiers"></tbody>
                         </table>
+                    </div>
+                </div>
+                <!-- 工作流编排 -->
+                <div class="cfg-section" id="section-workflows">
+                    <!-- 列表视图 -->
+                    <div id="workflowListView">
+                        <h2><i class="fas fa-project-diagram"></i> 工作流编排</h2>
+                        <div style="margin-bottom:16px;">
+                            <button class="cfg-btn cfg-btn-save" onclick="showWorkflowEditor(0)">
+                                <i class="fas fa-plus"></i> 新建工作流
+                            </button>
+                        </div>
+                        <table class="result-table" style="max-width:100%;">
+                            <thead><tr><th>名称</th><th>描述</th><th>节点数</th><th>分类器</th><th>创建时间</th><th>操作</th></tr></thead>
+                            <tbody id="workflowTbody"><tr><td colspan="6" style="text-align:center;color:#999;">加载中...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <!-- 编辑器视图 -->
+                    <div id="workflowEditorView" style="display:none;">
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                            <button class="cfg-btn cfg-btn-reset" onclick="backToWorkflowList()"><i class="fas fa-arrow-left"></i> 返回列表</button>
+                            <h2 style="margin:0;flex:1;"><i class="fas fa-project-diagram"></i> <span id="wfEditorTitle">新建工作流</span></h2>
+                            <button class="cfg-btn cfg-btn-save" onclick="saveWorkflow()"><i class="fas fa-check"></i> 保存工作流</button>
+                        </div>
+                        <!-- 工作流基本设置 -->
+                        <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+                            <div class="cfg-form-group" style="flex:1;min-width:200px;">
+                                <label>名称 <span style="color:#e53935;">*</span></label>
+                                <input type="text" id="wfName" maxlength="50" style="width:100%;">
+                            </div>
+                            <div class="cfg-form-group" style="flex:2;min-width:300px;">
+                                <label>描述</label>
+                                <input type="text" id="wfDesc" maxlength="200" style="width:100%;">
+                            </div>
+                        </div>
+                        <!-- 分类器配置（可折叠） -->
+                        <div style="background:#fafbfc;border:1px solid #e0e3e8;border-radius:10px;padding:16px 20px;margin-bottom:16px;">
+                            <div style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="toggleClassifier()">
+                                <i class="fas fa-chevron-right" id="wfClassifierCaret" style="transition:transform 0.2s;"></i>
+                                <strong>意图分类器</strong>
+                                <span style="color:#999;font-size:0.82rem;" id="wfClassifierStatus">未配置</span>
+                                <label class="cfg-toggle" style="margin-left:12px;" onclick="event.stopPropagation();">
+                                    <input type="checkbox" id="wfClassifierEnabled" onchange="toggleClassifierEnabled()">
+                                    <span class="cfg-toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div id="wfClassifierBody" style="display:none;margin-top:14px;">
+                                <div class="cfg-form-group">
+                                    <label>分类 Prompt <span style="color:#999;font-weight:400;">(LLM 分类用)</span></label>
+                                    <textarea id="wfClassifierPrompt" rows="3" style="width:100%;font-family:monospace;font-size:0.85rem;" placeholder="你是一个意图分类器..."></textarea>
+                                </div>
+                                <div class="cfg-form-group">
+                                    <label>输出变量名</label>
+                                    <input type="text" id="wfClassifierOutputVar" value="intent" style="max-width:200px;">
+                                </div>
+                                <label>意图类别 <button type="button" class="cfg-btn cfg-btn-save" style="padding:4px 12px;font-size:0.8rem;margin-left:8px;" onclick="addClassifierCategory()"><i class="fas fa-plus"></i> 添加</button></label>
+                                <div id="wfClassifierCategories" style="margin-top:8px;"></div>
+                            </div>
+                        </div>
+                        <!-- 节点编排 -->
+                        <div style="display:flex;gap:0;border:1px solid #e0e3e8;border-radius:10px;overflow:hidden;min-height:450px;">
+                            <!-- 左侧：画布预览 -->
+                            <div id="wfCanvasWrap" style="flex:1;background:#f8f9fb;position:relative;overflow:auto;min-width:300px;">
+                                <svg id="wfCanvasSvg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
+                                    <defs>
+                                        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                            <polygon points="0 0, 8 3, 0 6" fill="#4b6cb7"/>
+                                        </marker>
+                                    </defs>
+                                </svg>
+                                <div id="wfCanvasNodes" style="position:relative;padding:20px;min-width:600px;min-height:400px;"></div>
+                            </div>
+                            <!-- 右侧：节点配置 -->
+                            <div id="wfNodePanel" style="width:340px;flex-shrink:0;background:#fff;border-left:1px solid #e0e3e8;padding:16px;overflow-y:auto;">
+                                <div style="margin-bottom:12px;">
+                                    <button class="cfg-btn cfg-btn-save" style="width:100%;" onclick="addWorkflowNode()"><i class="fas fa-plus"></i> 添加节点</button>
+                                </div>
+                                <div id="wfNodeConfig" style="color:#999;text-align:center;padding:40px 0;">
+                                    <i class="fas fa-hand-pointer" style="font-size:2rem;display:block;margin-bottom:8px;"></i>
+                                    点击画布中的节点<br>进行配置
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 </div>
@@ -1815,12 +1979,721 @@
             }
         }
 
+        // ============================================================
+        // 工作流编排
+        // ============================================================
+
+        var wfEditor = {
+            id: 0,
+            name: '',
+            description: '',
+            classifier: null,
+            nodes: [],
+            selectedNodeId: null,
+            nextNodeId: 1,
+            agentList: [],
+            systemVars: []
+        };
+
+        function resetWfEditor() {
+            wfEditor = {
+                id: 0,
+                name: '',
+                description: '',
+                classifier: null,
+                nodes: [],
+                selectedNodeId: null,
+                nextNodeId: 1,
+                agentList: wfEditor.agentList,
+                systemVars: wfEditor.systemVars
+            };
+        }
+
+        async function loadAgentOptions() {
+            try {
+                var resp = await authFetch('/api/ai-agents');
+                var json = await resp.json();
+                wfEditor.agentList = json.data || [];
+            } catch(e) {
+                console.warn('加载 Agent 列表失败:', e);
+            }
+        }
+
+        async function loadSystemVars() {
+            try {
+                var resp = await authFetch('/api/system-vars');
+                var json = await resp.json();
+                wfEditor.systemVars = json.data || [];
+            } catch(e) {
+                console.warn('加载系统变量失败:', e);
+                wfEditor.systemVars = [];
+            }
+        }
+
+        async function loadWorkflowList() {
+            try {
+                var resp = await authFetch('/api/workflows');
+                var json = await resp.json();
+                var wfs = json.data || [];
+                var tbody = document.getElementById('workflowTbody');
+                if (wfs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:30px;">暂无工作流，点击"新建工作流"开始</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = wfs.map(function(w) {
+                    var nodeCount = (w.nodes && w.nodes.length) || 0;
+                    var hasClassifier = w.classifier ? '<span style="color:#2e7d32;">已配置</span>' : '<span style="color:#999;">无</span>';
+                    var createdAt = (w.created_at || '').substring(0, 10);
+                    return '<tr>' +
+                        '<td><strong>' + escHtml2(w.name) + '</strong></td>' +
+                        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml2(w.description || '') + '</td>' +
+                        '<td>' + nodeCount + '</td>' +
+                        '<td>' + hasClassifier + '</td>' +
+                        '<td>' + createdAt + '</td>' +
+                        '<td>' +
+                            '<button class="cfg-btn cfg-btn-save" style="padding:4px 12px;font-size:0.78rem;margin-right:4px;" onclick="showWorkflowEditor(' + w.id + ')"><i class="fas fa-edit"></i></button>' +
+                            '<button class="cfg-btn cfg-btn-reset" style="padding:4px 12px;font-size:0.78rem;color:#c62828;" onclick="deleteWorkflow(' + w.id + ')"><i class="fas fa-trash"></i></button>' +
+                        '</td>' +
+                    '</tr>';
+                }).join('');
+            } catch(e) {
+                document.getElementById('workflowTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c62828;">加载失败: ' + e.message + '</td></tr>';
+            }
+        }
+
+        async function showWorkflowEditor(id) {
+            await loadAgentOptions();
+            await loadSystemVars();
+            document.getElementById('workflowListView').style.display = 'none';
+            document.getElementById('workflowEditorView').style.display = 'block';
+
+            if (id > 0) {
+                try {
+                    var resp = await authFetch('/api/workflows/' + id);
+                    var json = await resp.json();
+                    var w = json.data;
+                    wfEditor.id = w.id;
+                    wfEditor.name = w.name;
+                    wfEditor.description = w.description || '';
+                    wfEditor.classifier = w.classifier || null;
+                    wfEditor.nodes = w.nodes || [];
+                    wfEditor.selectedNodeId = null;
+                    // 找最大 node ID
+                    var maxId = 0;
+                    wfEditor.nodes.forEach(function(n) {
+                        var m = n.id.match(/^node_(\d+)$/);
+                        if (m) { var num = parseInt(m[1]); if (num > maxId) maxId = num; }
+                    });
+                    wfEditor.nextNodeId = maxId + 1;
+                    document.getElementById('wfEditorTitle').textContent = '编辑工作流: ' + w.name;
+                } catch(e) {
+                    showToast('加载工作流失败: ' + e.message, 'error');
+                    backToWorkflowList();
+                    return;
+                }
+            } else {
+                resetWfEditor();
+                document.getElementById('wfEditorTitle').textContent = '新建工作流';
+            }
+
+            document.getElementById('wfName').value = wfEditor.name;
+            document.getElementById('wfDesc').value = wfEditor.description;
+            renderClassifierUI();
+            renderCanvas();
+            renderNodeConfig();
+        }
+
+        function backToWorkflowList() {
+            document.getElementById('workflowListView').style.display = 'block';
+            document.getElementById('workflowEditorView').style.display = 'none';
+            loadWorkflowList();
+        }
+
+        async function saveWorkflow() {
+            var name = document.getElementById('wfName').value.trim();
+            if (!name) { showToast('请输入工作流名称', 'error'); return; }
+
+            wfEditor.name = name;
+            wfEditor.description = document.getElementById('wfDesc').value.trim();
+
+            // 收集分类器
+            var classifierEnabled = document.getElementById('wfClassifierEnabled').checked;
+            if (classifierEnabled) {
+                var cats = [];
+                document.querySelectorAll('#wfClassifierCategories .wf-category-row').forEach(function(row) {
+                    var inputs = row.querySelectorAll('input');
+                    var catName = inputs[0].value.trim();
+                    var catDesc = inputs[1].value.trim();
+                    var catKw = inputs[2].value.trim();
+                    if (catName) {
+                        cats.push({
+                            name: catName,
+                            description: catDesc,
+                            keywords: catKw ? catKw.split(/[,，]/).map(function(s){return s.trim();}).filter(function(s){return s;}) : []
+                        });
+                    }
+                });
+                wfEditor.classifier = {
+                    prompt: document.getElementById('wfClassifierPrompt').value.trim(),
+                    output_var: document.getElementById('wfClassifierOutputVar').value.trim() || 'intent',
+                    categories: cats
+                };
+            } else {
+                wfEditor.classifier = null;
+            }
+
+            if (wfEditor.nodes.length === 0) {
+                showToast('请至少添加一个节点', 'error');
+                return;
+            }
+
+            // 检查所有节点都有 agent_id
+            for (var i = 0; i < wfEditor.nodes.length; i++) {
+                if (!wfEditor.nodes[i].agent_id) {
+                    showToast('节点 "' + (wfEditor.nodes[i].agent_name || wfEditor.nodes[i].id) + '" 未选择智能体', 'error');
+                    return;
+                }
+            }
+
+            var payload = {
+                name: wfEditor.name,
+                description: wfEditor.description,
+                classifier: wfEditor.classifier,
+                nodes: wfEditor.nodes.map(function(n, idx) {
+                    return {
+                        id: n.id,
+                        agent_id: n.agent_id,
+                        agent_name: n.agent_name || '',
+                        input_template: n.input_template || '',
+                        output_var: n.output_var || '',
+                        order_index: idx,
+                        is_final: n.is_final || false,
+                        condition: n.condition || '',
+                        next_nodes: n.next_nodes || [],
+                        parallel_group: n.parallel_group || ''
+                    };
+                })
+            };
+
+            try {
+                var url = '/api/workflows';
+                var method = 'POST';
+                if (wfEditor.id > 0) {
+                    url = '/api/workflows/' + wfEditor.id;
+                    method = 'PUT';
+                }
+                var resp = await authFetch(url, {
+                    method: method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                var json = await resp.json();
+                if (json.status === 'ok') {
+                    showToast(wfEditor.id > 0 ? '工作流已更新' : '工作流已创建', 'success');
+                    backToWorkflowList();
+                } else {
+                    showToast('保存失败: ' + (json.error || '未知错误'), 'error');
+                }
+            } catch(e) {
+                showToast('保存失败: ' + e.message, 'error');
+            }
+        }
+
+        async function deleteWorkflow(id) {
+            if (!confirm('确定要删除该工作流吗？此操作不可恢复。')) return;
+            try {
+                var resp = await authFetch('/api/workflows/' + id, { method: 'DELETE' });
+                var json = await resp.json();
+                if (json.status === 'ok') {
+                    showToast('工作流已删除', 'success');
+                    loadWorkflowList();
+                } else {
+                    showToast('删除失败: ' + (json.error || '未知错误'), 'error');
+                }
+            } catch(e) {
+                showToast('删除失败: ' + e.message, 'error');
+            }
+        }
+
+        // ============================================================
+        // 分类器 UI
+        // ============================================================
+
+        function toggleClassifier() {
+            var body = document.getElementById('wfClassifierBody');
+            var caret = document.getElementById('wfClassifierCaret');
+            if (body.style.display === 'none') {
+                body.style.display = 'block';
+                caret.style.transform = 'rotate(90deg)';
+            } else {
+                body.style.display = 'none';
+                caret.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function toggleClassifierEnabled() {
+            var enabled = document.getElementById('wfClassifierEnabled').checked;
+            document.getElementById('wfClassifierStatus').textContent = enabled ? '已启用' : '未配置';
+            if (enabled) {
+                document.getElementById('wfClassifierBody').style.display = 'block';
+                document.getElementById('wfClassifierCaret').style.transform = 'rotate(90deg)';
+            }
+            renderCanvas();
+            renderNodeConfig();
+        }
+
+        function renderClassifierUI() {
+            var cls = wfEditor.classifier;
+            var enabled = cls && cls.categories && cls.categories.length > 0;
+            document.getElementById('wfClassifierEnabled').checked = enabled;
+            document.getElementById('wfClassifierStatus').textContent = enabled ? '已启用' : '未配置';
+            document.getElementById('wfClassifierPrompt').value = (cls && cls.prompt) || '';
+            document.getElementById('wfClassifierOutputVar').value = (cls && cls.output_var) || 'intent';
+
+            var catContainer = document.getElementById('wfClassifierCategories');
+            var cats = (cls && cls.categories) || [];
+            catContainer.innerHTML = cats.map(function(c, i) {
+                return '<div class="wf-category-row">' +
+                    '<input type="text" placeholder="标识 (如: emergency)" value="' + escHtml2(c.name || '') + '" style="flex:1;">' +
+                    '<input type="text" placeholder="描述" value="' + escHtml2(c.description || '') + '" style="flex:1.5;">' +
+                    '<input type="text" placeholder="关键词 (逗号分隔)" value="' + escHtml2((c.keywords || []).join(',')) + '" style="flex:2;">' +
+                    '<button type="button" class="cfg-btn cfg-btn-reset" style="padding:4px 8px;font-size:0.75rem;color:#c62828;" onclick="removeClassifierCategory(this)">×</button>' +
+                '</div>';
+            }).join('');
+            if (cats.length === 0) {
+                catContainer.innerHTML = '<div style="color:#999;font-size:0.82rem;padding:8px 0;">暂无类别，点击"添加"</div>';
+            }
+        }
+
+        function addClassifierCategory() {
+            var container = document.getElementById('wfClassifierCategories');
+            // 清除空状态
+            if (container.querySelector('div[style]') && container.children.length === 1 && !container.querySelector('.wf-category-row')) {
+                container.innerHTML = '';
+            }
+            var row = document.createElement('div');
+            row.className = 'wf-category-row';
+            row.innerHTML = '<input type="text" placeholder="标识 (如: emergency)" value="" style="flex:1;">' +
+                '<input type="text" placeholder="描述" value="" style="flex:1.5;">' +
+                '<input type="text" placeholder="关键词 (逗号分隔)" value="" style="flex:2;">' +
+                '<button type="button" class="cfg-btn cfg-btn-reset" style="padding:4px 8px;font-size:0.75rem;color:#c62828;" onclick="removeClassifierCategory(this)">×</button>';
+            container.appendChild(row);
+        }
+
+        function removeClassifierCategory(btn) {
+            btn.closest('.wf-category-row').remove();
+            var container = document.getElementById('wfClassifierCategories');
+            if (!container.querySelector('.wf-category-row')) {
+                container.innerHTML = '<div style="color:#999;font-size:0.82rem;padding:8px 0;">暂无类别，点击"添加"</div>';
+            }
+        }
+
+        // ============================================================
+        // 节点管理
+        // ============================================================
+
+        function addWorkflowNode() {
+            var nodeId = 'node_' + (wfEditor.nextNodeId++);
+            var newNode = {
+                id: nodeId,
+                agent_id: 0,
+                agent_name: '',
+                input_template: '{{sys.user_query}}',
+                output_var: nodeId + '_output',
+                order_index: wfEditor.nodes.length,
+                is_final: false,
+                condition: '',
+                next_nodes: [],
+                parallel_group: ''
+            };
+            wfEditor.nodes.push(newNode);
+            wfEditor.selectedNodeId = nodeId;
+            renderCanvas();
+            renderNodeConfig();
+        }
+
+        function deleteNode(nodeId) {
+            if (!confirm('确定要删除节点 ' + nodeId + ' 吗？')) return;
+            wfEditor.nodes = wfEditor.nodes.filter(function(n) { return n.id !== nodeId; });
+            // 清理其他节点对该节点的引用
+            wfEditor.nodes.forEach(function(n) {
+                n.next_nodes = (n.next_nodes || []).filter(function(t) { return t !== nodeId; });
+            });
+            if (wfEditor.selectedNodeId === nodeId) {
+                wfEditor.selectedNodeId = null;
+            }
+            renderCanvas();
+            renderNodeConfig();
+        }
+
+        function selectNode(nodeId) {
+            wfEditor.selectedNodeId = nodeId;
+            renderCanvas();
+            renderNodeConfig();
+        }
+
+        // ============================================================
+        // 画布渲染
+        // ============================================================
+
+        function renderCanvas() {
+            var container = document.getElementById('wfCanvasNodes');
+            var svg = document.getElementById('wfCanvasSvg');
+            var nodes = wfEditor.nodes;
+
+            if (nodes.length === 0) {
+                container.innerHTML = '<div style="color:#999;text-align:center;padding:60px 0;"><i class="fas fa-plus-circle" style="font-size:2rem;display:block;margin-bottom:8px;"></i>点击右侧"添加节点"开始编排</div>';
+                svg.innerHTML = svg.innerHTML.replace(/<line[^>]*\/>|<path[^>]*\/>/g, ''); // 清理旧的边
+                return;
+            }
+
+            // 计算布局（层次布局）
+            var positions = computeLayout(nodes);
+
+            // 渲染节点卡片
+            container.innerHTML = nodes.map(function(n) {
+                var pos = positions[n.id] || {x: 20, y: 20 + wfEditor.nodes.indexOf(n) * 80};
+                var isSelected = wfEditor.selectedNodeId === n.id;
+                var agentLabel = n.agent_name || '未选择';
+                var condText = n.condition ? '条件: ' + n.condition : '';
+                var finalBadge = n.is_final ? '<span class="wf-node-final">终点</span>' : '';
+                return '<div class="wf-node-card' + (isSelected ? ' selected' : '') + '" ' +
+                    'data-node-id="' + n.id + '" ' +
+                    'style="left:' + pos.x + 'px;top:' + pos.y + 'px;" ' +
+                    'onclick="selectNode(\'' + n.id + '\')">' +
+                    '<div class="wf-node-handle wf-handle-out" onclick="event.stopPropagation();startEdgeDraw(\'' + n.id + '\')" title="拖拽连线"></div>' +
+                    '<span class="wf-node-title">' + escHtml2(agentLabel) + '</span>' +
+                    '<span class="wf-node-info">输出: ' + escHtml2(n.output_var || '') + '</span>' +
+                    (condText ? '<span class="wf-node-cond">' + escHtml2(condText) + '</span>' : '') +
+                    finalBadge +
+                '</div>';
+            }).join('');
+
+            // 渲染 SVG 边
+            var edgeLines = '';
+            nodes.forEach(function(n) {
+                (n.next_nodes || []).forEach(function(targetId) {
+                    var srcPos = positions[n.id];
+                    var tgtPos = positions[targetId];
+                    if (srcPos && tgtPos) {
+                        var x1 = srcPos.x + 180; // 卡牌右边缘
+                        var y1 = srcPos.y + 25;   // 卡牌垂直中心
+                        var x2 = tgtPos.x;
+                        var y2 = tgtPos.y + 25;
+                        edgeLines += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="#4b6cb7" stroke-width="2" marker-end="url(#arrowhead)" opacity="0.6"/>';
+                    }
+                });
+            });
+            // 更新 SVG（保留 defs）
+            svg.innerHTML = '<defs><marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4b6cb7"/></marker></defs>' + edgeLines;
+            // 更新画布大小
+            var maxRight = 0, maxBottom = 0;
+            Object.values(positions).forEach(function(p) {
+                if (p.x + 200 > maxRight) maxRight = p.x + 200;
+                if (p.y + 80 > maxBottom) maxBottom = p.y + 80;
+            });
+            container.style.minWidth = (maxRight + 40) + 'px';
+            container.style.minHeight = (maxBottom + 40) + 'px';
+        }
+
+        function computeLayout(nodes) {
+            // 简单的层次布局：按拓扑层级排列
+            var positions = {};
+            if (nodes.length === 0) return positions;
+
+            // 计算每个节点的层级（BFS from roots）
+            var inDegree = {};
+            var adj = {};
+            nodes.forEach(function(n) {
+                inDegree[n.id] = 0;
+                adj[n.id] = n.next_nodes || [];
+            });
+            nodes.forEach(function(n) {
+                (n.next_nodes || []).forEach(function(t) {
+                    if (inDegree[t] !== undefined) inDegree[t]++;
+                });
+            });
+
+            // BFS 分层
+            var queue = [];
+            var levels = {};
+            Object.keys(inDegree).forEach(function(id) {
+                if (inDegree[id] === 0) {
+                    queue.push(id);
+                    levels[id] = 0;
+                }
+            });
+            while (queue.length > 0) {
+                var curr = queue.shift();
+                (adj[curr] || []).forEach(function(next) {
+                    if (levels[next] === undefined || levels[next] <= levels[curr]) {
+                        levels[next] = (levels[curr] || 0) + 1;
+                        queue.push(next);
+                    }
+                });
+            }
+
+            // 按层级分组
+            var levelGroups = {};
+            Object.keys(levels).forEach(function(id) {
+                var lv = levels[id];
+                if (!levelGroups[lv]) levelGroups[lv] = [];
+                levelGroups[lv].push(id);
+            });
+
+            // 分配坐标
+            var xStep = 220, yStep = 90;
+            Object.keys(levelGroups).sort(function(a,b){return a-b;}).forEach(function(lv) {
+                var ids = levelGroups[lv];
+                ids.forEach(function(id, i) {
+                    positions[id] = {
+                        x: 20 + parseInt(lv) * xStep,
+                        y: 20 + i * yStep
+                    };
+                });
+            });
+
+            // 为缺失的节点分配默认位置
+            nodes.forEach(function(n) {
+                if (!positions[n.id]) {
+                    positions[n.id] = {x: 20, y: 20 + nodes.indexOf(n) * 80};
+                }
+            });
+
+            return positions;
+        }
+
+        // ============================================================
+        // 连线交互
+        // ============================================================
+
+        var edgeDrawSource = null;
+
+        function startEdgeDraw(sourceId) {
+            edgeDrawSource = sourceId;
+            document.body.style.cursor = 'crosshair';
+            // 高亮所有可连线目标
+            document.querySelectorAll('.wf-node-card').forEach(function(card) {
+                if (card.dataset.nodeId !== sourceId) {
+                    card.style.outline = '2px dashed #4b6cb7';
+                    card.onclick = function(e) {
+                        e.stopPropagation();
+                        finishEdgeDraw(card.dataset.nodeId);
+                    };
+                }
+            });
+            // 点击空白取消
+            setTimeout(function() {
+                document.addEventListener('click', cancelEdgeDraw, {once: true});
+            }, 100);
+        }
+
+        function finishEdgeDraw(targetId) {
+            if (!edgeDrawSource || edgeDrawSource === targetId) return;
+            var srcNode = wfEditor.nodes.find(function(n) { return n.id === edgeDrawSource; });
+            if (srcNode) {
+                if (!srcNode.next_nodes) srcNode.next_nodes = [];
+                if (srcNode.next_nodes.indexOf(targetId) < 0) {
+                    srcNode.next_nodes.push(targetId);
+                }
+                // 自动检测 is_final
+                autoDetectFinal();
+            }
+            clearEdgeDraw();
+            renderCanvas();
+            renderNodeConfig();
+        }
+
+        function cancelEdgeDraw() {
+            clearEdgeDraw();
+            renderCanvas();
+        }
+
+        function clearEdgeDraw() {
+            edgeDrawSource = null;
+            document.body.style.cursor = '';
+        }
+
+        function autoDetectFinal() {
+            var referenced = {};
+            wfEditor.nodes.forEach(function(n) {
+                (n.next_nodes || []).forEach(function(t) { referenced[t] = true; });
+            });
+            wfEditor.nodes.forEach(function(n) {
+                n.is_final = !referenced[n.id];
+            });
+        }
+
+        // ============================================================
+        // 节点配置面板
+        // ============================================================
+
+        function renderNodeConfig() {
+            var panel = document.getElementById('wfNodeConfig');
+            var node = wfEditor.nodes.find(function(n) { return n.id === wfEditor.selectedNodeId; });
+            if (!node) {
+                panel.innerHTML = '<div style="color:#999;text-align:center;padding:40px 0;">' +
+                    '<i class="fas fa-hand-pointer" style="font-size:2rem;display:block;margin-bottom:8px;"></i>' +
+                    '点击画布中的节点<br>进行配置</div>';
+                return;
+            }
+
+            var classifierEnabled = document.getElementById('wfClassifierEnabled').checked;
+            var conditionOpts = '<option value="">(无条件)</option>';
+            if (classifierEnabled) {
+                document.querySelectorAll('#wfClassifierCategories .wf-category-row').forEach(function(row) {
+                    var inputs = row.querySelectorAll('input');
+                    var catName = inputs[0].value.trim();
+                    if (catName) {
+                        conditionOpts += '<option value="' + escHtml2(catName) + '"' + (node.condition === catName ? ' selected' : '') + '>' + escHtml2(catName) + '</option>';
+                    }
+                });
+            }
+
+            // 下游节点多选
+            var nextNodeOpts = wfEditor.nodes.filter(function(n) { return n.id !== node.id; }).map(function(n) {
+                var isChecked = (node.next_nodes || []).indexOf(n.id) >= 0;
+                return '<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:0.82rem;cursor:pointer;">' +
+                    '<input type="checkbox" value="' + n.id + '"' + (isChecked ? ' checked' : '') + ' onchange="toggleNextNode(\'' + node.id + '\', \'' + n.id + '\', this.checked)">' +
+                    escHtml2(n.agent_name || n.id) + ' (' + n.id + ')' +
+                '</label>';
+            }).join('');
+
+            var agentOpts = wfEditor.agentList.map(function(a) {
+                return '<option value="' + a.id + '"' + (node.agent_id === a.id ? ' selected' : '') + '>' + escHtml2(a.name) + '</option>';
+            }).join('');
+
+            // 构建可用变量清单
+            var varRows = '';
+            // 系统变量
+            (wfEditor.systemVars || []).forEach(function(v) {
+                varRows += '<div class="wf-var-item" onclick="insertVarToTemplate(\'' + escHtml2(v.name) + '\')" title="' + escHtml2(v.description || '') + '">' +
+                    '<code style="background:#e8f0fe;color:#1967d2;padding:2px 6px;border-radius:3px;font-size:0.78rem;cursor:pointer;">' + T_OPEN + escHtml2(v.name) + T_CLOSE + '</code>' +
+                    '<span style="color:#666;font-size:0.75rem;">' + escHtml2(v.description || '') + '</span>' +
+                '</div>';
+            });
+            // 上游节点输出变量
+            wfEditor.nodes.forEach(function(n) {
+                if (n.id !== node.id && n.output_var) {
+                    varRows += '<div class="wf-var-item" onclick="insertVarToTemplate(\'' + escHtml2(n.output_var) + '\')" title="节点 ' + escHtml2(n.id) + ' 的输出">' +
+                        '<code style="background:#fef7e0;color:#e37400;padding:2px 6px;border-radius:3px;font-size:0.78rem;cursor:pointer;">' + T_OPEN + escHtml2(n.output_var) + T_CLOSE + '</code>' +
+                        '<span style="color:#666;font-size:0.75rem;">节点 ' + escHtml2(n.id) + ' (' + escHtml2(n.agent_name || '未命名') + ')</span>' +
+                    '</div>';
+                }
+            });
+            // 分类器输出变量
+            if (classifierEnabled) {
+                var clsVar = document.getElementById('wfClassifierOutputVar');
+                if (clsVar && clsVar.value.trim()) {
+                    var cv = clsVar.value.trim();
+                    varRows += '<div class="wf-var-item" onclick="insertVarToTemplate(\'' + escHtml2(cv) + '\')" title="分类器输出">' +
+                        '<code style="background:#e6f4ea;color:#137333;padding:2px 6px;border-radius:3px;font-size:0.78rem;cursor:pointer;">' + T_OPEN + escHtml2(cv) + T_CLOSE + '</code>' +
+                        '<span style="color:#666;font-size:0.75rem;">分类器输出 (意图识别结果)</span>' +
+                    '</div>';
+                }
+            }
+            var varPanelHtml = varRows ? '<div class="wf-var-panel">' +
+                '<div class="wf-var-header" onclick="var toggleBtn=this.nextElementSibling;var open=toggleBtn.style.display!==\'none\';toggleBtn.style.display=open?\'none\':\'block\';this.textContent=\'可用变量 ' + T_OPEN + '点击插入' + T_CLOSE + ' \' + (open ? \'▶\' : \'▼\');" style="cursor:pointer;font-size:0.78rem;color:#4b6cb7;margin-bottom:4px;user-select:none;">' +
+                '可用变量 ' + T_OPEN + '点击插入' + T_CLOSE + ' ▼</div>' +
+                '<div class="wf-var-list" style="max-height:160px;overflow-y:auto;border:1px solid #e0e3e8;border-radius:6px;padding:4px;background:#fafbfc;">' +
+                varRows +
+                '</div></div>' : '';
+
+            panel.innerHTML =
+                '<div class="pwd-field">' +
+                    '<label>智能体 <span style="color:#e53935;">*</span></label>' +
+                    '<select id="wfNodeAgent" onchange="updateNodeFromForm()" style="width:100%;">' +
+                        '<option value="">请选择...</option>' + agentOpts +
+                    '</select>' +
+                '</div>' +
+                '<div class="pwd-field">' +
+                    '<label>输入模板 <span style="color:#999;font-weight:400;">(支持 ' + T_OPEN + '变量' + T_CLOSE + ')</span></label>' +
+                    '<textarea id="wfNodeInputTmpl" rows="3" onchange="updateNodeFromForm()" style="width:100%;font-family:monospace;font-size:0.82rem;">' + escHtml2(node.input_template || '') + '</textarea>' +
+                    varPanelHtml +
+                '</div>' +
+                '<div class="pwd-field">' +
+                    '<label>输出变量名</label>' +
+                    '<input type="text" id="wfNodeOutputVar" value="' + escHtml2(node.output_var || '') + '" onchange="updateNodeFromForm()" style="width:100%;">' +
+                '</div>' +
+                '<div class="pwd-field">' +
+                    '<label>触发条件</label>' +
+                    '<select id="wfNodeCondition" onchange="updateNodeFromForm()" style="width:100%;"' + (classifierEnabled ? '' : ' disabled') + '>' + conditionOpts + '</select>' +
+                '</div>' +
+                '<div class="pwd-field">' +
+                    '<label>下游节点 <span style="color:#999;font-weight:400;">(点击画布节点圆点连线)</span></label>' +
+                    '<div style="max-height:120px;overflow-y:auto;padding:6px;border:1px solid #e0e3e8;border-radius:6px;">' +
+                        (nextNodeOpts || '<span style="color:#999;font-size:0.78rem;">无可用下游节点</span>') +
+                    '</div>' +
+                '</div>' +
+                '<div class="pwd-field">' +
+                    '<label>并行组 <span style="color:#999;font-weight:400;">(相同组名并行执行)</span></label>' +
+                    '<input type="text" id="wfNodeParallelGroup" value="' + escHtml2(node.parallel_group || '') + '" onchange="updateNodeFromForm()" placeholder="如: group1" style="width:100%;">' +
+                '</div>' +
+                '<hr style="border:none;border-top:1px solid #e0e3e8;margin:16px 0;">' +
+                '<button class="cfg-btn cfg-btn-reset" style="width:100%;color:#c62828;" onclick="deleteNode(\'' + node.id + '\')">' +
+                    '<i class="fas fa-trash"></i> 删除节点' +
+                '</button>';
+        }
+
+        function updateNodeFromForm() {
+            var node = wfEditor.nodes.find(function(n) { return n.id === wfEditor.selectedNodeId; });
+            if (!node) return;
+
+            var agentSel = document.getElementById('wfNodeAgent');
+            if (agentSel) {
+                node.agent_id = parseInt(agentSel.value) || 0;
+                var opt = agentSel.options[agentSel.selectedIndex];
+                node.agent_name = opt ? opt.textContent : '';
+            }
+
+            var tmpl = document.getElementById('wfNodeInputTmpl');
+            if (tmpl) node.input_template = tmpl.value;
+
+            var ov = document.getElementById('wfNodeOutputVar');
+            if (ov) node.output_var = ov.value;
+
+            var cond = document.getElementById('wfNodeCondition');
+            if (cond) node.condition = cond.value;
+
+            var pg = document.getElementById('wfNodeParallelGroup');
+            if (pg) node.parallel_group = pg.value;
+
+            renderCanvas();
+        }
+
+        // 点击变量名插入到输入模板 textarea 的光标位置
+        function insertVarToTemplate(varName) {
+            var ta = document.getElementById('wfNodeInputTmpl');
+            if (!ta) return;
+            var text = T_OPEN + varName + T_CLOSE;
+            var start = ta.selectionStart;
+            var end = ta.selectionEnd;
+            ta.value = ta.value.substring(0, start) + text + ta.value.substring(end);
+            ta.selectionStart = ta.selectionEnd = start + text.length;
+            ta.focus();
+            updateNodeFromForm();
+        }
+
+        function toggleNextNode(nodeId, targetId, checked) {
+            var node = wfEditor.nodes.find(function(n) { return n.id === nodeId; });
+            if (!node) return;
+            if (!node.next_nodes) node.next_nodes = [];
+            if (checked) {
+                if (node.next_nodes.indexOf(targetId) < 0) node.next_nodes.push(targetId);
+            } else {
+                node.next_nodes = node.next_nodes.filter(function(t) { return t !== targetId; });
+            }
+            autoDetectFinal();
+            renderCanvas();
+        }
+
         // 初始加载
         loadConfig();
         loadUsers();
         loadAiAgents();
         loadFaqList();
         loadWorkflows();
+        loadWorkflowList();
     </script>
 </body>
 </html>

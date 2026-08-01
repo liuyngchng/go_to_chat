@@ -1,6 +1,7 @@
 package com.rd.robot.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rd.robot.engine.WorkflowEngine;
 import com.rd.robot.model.*;
 import com.rd.robot.repository.MetaStore;
 import com.rd.robot.web.server.HttpServer;
@@ -10,8 +11,8 @@ import io.netty.util.CharsetUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Workflow management controller.
@@ -33,13 +34,17 @@ public class WorkflowController {
     public void listPublic(ChannelHandlerContext ctx, FullHttpRequest req) {
         try {
             List<WorkflowDef> workflows = metaStore.listWorkflows();
-            var result = workflows.stream().map(w -> Map.of(
-                    "id", w.getId(),
-                    "name", w.getName(),
-                    "description", w.getDescription() != null ? w.getDescription() : "",
-                    "classifier", w.getClassifier(),
-                    "nodes", w.getNodes() != null ? w.getNodes() : List.of()
-            )).toList();
+            var result = workflows.stream().map(w -> {
+                Map<String, Object> m = new HashMap<>();
+                m.put("id", w.getId());
+                m.put("name", w.getName());
+                m.put("description", w.getDescription() != null ? w.getDescription() : "");
+                m.put("classifier", w.getClassifier());
+                m.put("nodes", w.getNodes() != null ? w.getNodes() : List.of());
+                m.put("created_at", w.getCreatedAt() != null ? w.getCreatedAt().toString() : "");
+                m.put("updated_at", w.getUpdatedAt() != null ? w.getUpdatedAt().toString() : "");
+                return m;
+            }).toList();
             HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(Map.of("data", result)));
         } catch (Exception e) {
             HttpServer.sendJson(ctx, 500, "{\"error\":\"获取工作流列表失败: " + e.getMessage() + "\"}");
@@ -82,8 +87,14 @@ public class WorkflowController {
                 return;
             }
 
-            // Auto-mark last node as final
-            createReq.getNodes().get(createReq.getNodes().size() - 1).setFinal(true);
+            // DAG mode: validate graph structure
+            if (hasNextNodes(createReq.getNodes())) {
+                WorkflowEngine.validateWorkflowGraph(createReq.getNodes());
+                autoDetectIsFinal(createReq.getNodes());
+            } else {
+                // Linear mode: auto-mark last node as final
+                createReq.getNodes().get(createReq.getNodes().size() - 1).setFinal(true);
+            }
 
             WorkflowDef workflow = new WorkflowDef();
             workflow.setName(createReq.getName());
@@ -94,7 +105,7 @@ public class WorkflowController {
             long id = metaStore.createWorkflow(workflow);
             HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(Map.of("status", "ok", "id", id)));
         } catch (Exception e) {
-            HttpServer.sendJson(ctx, 500, "{\"error\":\"创建工作流失败: " + e.getMessage() + "\"}");
+            HttpServer.sendJson(ctx, 400, "{\"error\":\"创建工作流失败: " + e.getMessage() + "\"}");
         }
     }
 
@@ -123,9 +134,15 @@ public class WorkflowController {
                 return;
             }
 
-            // Auto-set final flag: only last node is final
-            for (int i = 0; i < updateReq.getNodes().size(); i++) {
-                updateReq.getNodes().get(i).setFinal(i == updateReq.getNodes().size() - 1);
+            // DAG mode: validate graph structure
+            if (hasNextNodes(updateReq.getNodes())) {
+                WorkflowEngine.validateWorkflowGraph(updateReq.getNodes());
+                autoDetectIsFinal(updateReq.getNodes());
+            } else {
+                // Linear mode: auto-set final flag
+                for (int i = 0; i < updateReq.getNodes().size(); i++) {
+                    updateReq.getNodes().get(i).setFinal(i == updateReq.getNodes().size() - 1);
+                }
             }
 
             WorkflowDef workflow = new WorkflowDef();
@@ -138,7 +155,7 @@ public class WorkflowController {
             metaStore.updateWorkflow(workflow);
             HttpServer.sendJson(ctx, 200, "{\"status\":\"ok\"}");
         } catch (Exception e) {
-            HttpServer.sendJson(ctx, 500, "{\"error\":\"更新工作流失败: " + e.getMessage() + "\"}");
+            HttpServer.sendJson(ctx, 400, "{\"error\":\"更新工作流失败: " + e.getMessage() + "\"}");
         }
     }
 
@@ -169,5 +186,21 @@ public class WorkflowController {
             try { return Long.parseLong(rest); } catch (NumberFormatException ignored) {}
         }
         return 0;
+    }
+
+    /** Check if any node has DAG edges defined. */
+    private static boolean hasNextNodes(List<WorkflowNode> nodes) {
+        return nodes.stream().anyMatch(n -> n.getNextNodes() != null && !n.getNextNodes().isEmpty());
+    }
+
+    /** Auto-detect IsFinal: nodes with no outgoing edges are sinks. */
+    private static void autoDetectIsFinal(List<WorkflowNode> nodes) {
+        Set<String> referenced = new HashSet<>();
+        for (WorkflowNode n : nodes) {
+            if (n.getNextNodes() != null) referenced.addAll(n.getNextNodes());
+        }
+        for (WorkflowNode n : nodes) {
+            n.setFinal(!referenced.contains(n.getId()));
+        }
     }
 }

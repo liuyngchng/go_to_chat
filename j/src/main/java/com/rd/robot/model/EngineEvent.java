@@ -1,5 +1,7 @@
 package com.rd.robot.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
  * Workflow engine execution event (for SSE streaming).
  */
@@ -9,6 +11,10 @@ public class EngineEvent {
     private int total;
     private String agent;
     private String content;
+    @JsonProperty("node_id")
+    private String nodeId;       // DAG mode: node ID
+    @JsonProperty("parallel_group")
+    private String parallelGroup; // DAG mode: parallel group name
 
     public EngineEvent() {}
 
@@ -35,4 +41,8 @@ public class EngineEvent {
     public void setAgent(String agent) { this.agent = agent; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+    public String getNodeId() { return nodeId; }
+    public void setNodeId(String nodeId) { this.nodeId = nodeId; }
+    public String getParallelGroup() { return parallelGroup; }
+    public void setParallelGroup(String parallelGroup) { this.parallelGroup = parallelGroup; }
 }
