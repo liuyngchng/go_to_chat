@@ -1,8 +1,7 @@
 /* ============================================================
-   工作流编辑器 — 全局样式
+   工作流编辑器 — 全局样式（与 g/ 风格统一）
+   主色: #4b6cb7  渐变: #4b6cb7 → #182848
    ============================================================ */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -13,26 +12,26 @@
 html, body, #root {
   width: 100%;
   height: 100%;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #0d0d17;
-  color: #e2e4ed;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f5f7fa;
+  color: #333;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
 /* ---- React Flow 边 ---- */
 .react-flow__edge-path {
-  stroke: #2e2e45;
+  stroke: #b0b8c8;
   stroke-width: 2;
   transition: stroke 0.15s;
 }
 
 .react-flow__edge:hover .react-flow__edge-path {
-  stroke: #5b5d78;
+  stroke: #4b6cb7;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
-  stroke: #3b82f6;
+  stroke: #4b6cb7;
   stroke-width: 2.5;
 }
 
@@ -47,53 +46,52 @@ html, body, #root {
 }
 
 .react-flow__handle-connecting {
-  box-shadow: 0 0 0 3px rgba(59,130,246,0.3);
+  box-shadow: 0 0 0 3px rgba(75,108,183,0.3);
 }
 
 .react-flow__handle-valid {
-  box-shadow: 0 0 0 3px rgba(34,197,94,0.3);
+  box-shadow: 0 0 0 3px rgba(46,125,50,0.3);
 }
 
 /* ---- 连线预览 ---- */
 .react-flow__connection-line {
-  stroke: #3b82f6;
+  stroke: #4b6cb7;
   stroke-width: 2;
 }
 
 /* ---- 选中节点 ---- */
 .react-flow__node.selected > div {
-  box-shadow: 0 0 0 2px rgba(59,130,246,0.5),
-              0 8px 32px rgba(0,0,0,0.4) !important;
+  box-shadow: 0 0 0 3px rgba(75,108,183,0.2), 0 4px 16px rgba(75,108,183,0.15) !important;
 }
 
 /* ---- 小地图 ---- */
 .react-flow__minimap {
   border-radius: 10px;
   overflow: hidden;
-  border: 1px solid #1e1e30 !important;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  border: 1px solid #e0e3e8 !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
 }
 
 /* ---- 控制面板 ---- */
 .react-flow__controls {
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08) !important;
   border-radius: 10px !important;
   overflow: hidden;
-  border: 1px solid #1e1e30 !important;
+  border: 1px solid #e0e3e8 !important;
 }
 
 .react-flow__controls-button {
-  fill: #8b8fa5 !important;
-  background: #1c1c2a !important;
-  border-bottom: 1px solid #1e1e30 !important;
+  fill: #666 !important;
+  background: #fff !important;
+  border-bottom: 1px solid #e8eaed !important;
   width: 30px !important;
   height: 30px !important;
   transition: all 0.12s !important;
 }
 
 .react-flow__controls-button:hover {
-  background: #252538 !important;
-  fill: #e2e4ed !important;
+  background: #f0f4ff !important;
+  fill: #4b6cb7 !important;
 }
 
 .react-flow__controls-button:last-child {
@@ -102,8 +100,8 @@ html, body, #root {
 
 /* ---- 选择框 ---- */
 .react-flow__selection {
-  background: rgba(59,130,246,0.08) !important;
-  border: 1px solid rgba(59,130,246,0.25) !important;
+  background: rgba(75,108,183,0.06) !important;
+  border: 1px solid rgba(75,108,183,0.2) !important;
 }
 
 /* ---- 自定义滚动条 ---- */
@@ -114,16 +112,16 @@ html, body, #root {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2e2e45;
+  background: #d0d5dd;
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3e3e55;
+  background: #b0b8c8;
 }
 
-/* ---- 输入框 focus ring ---- */
+/* ---- 输入框 focus ---- */
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: #3b82f6 !important;
-  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+  border-color: #4b6cb7 !important;
+  box-shadow: 0 0 0 3px rgba(75,108,183,0.12);
 }

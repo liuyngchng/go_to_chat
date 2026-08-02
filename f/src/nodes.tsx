@@ -1,47 +1,45 @@
 import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Play, Bot, Wrench, Database, GitBranch } from 'lucide-react';
 import type { AgentNodeData, ToolNodeData, VariableNodeData, ClassifierNodeData, StartNodeData } from './types';
 
 // ============================================================
-// 节点卡片统一样式
+// Font Awesome 图标
 // ============================================================
 
-const card = (accent: string): React.CSSProperties => ({
-  background: '#1c1c2a',
-  borderRadius: 12,
-  border: '1px solid #2a2a3d',
-  borderLeft: `3px solid ${accent}`,
+const Fa = ({ icon, style }: { icon: string; style?: React.CSSProperties }) => (
+  <i className={`fas ${icon}`} style={{ fontSize: 14, ...style }} />
+);
+
+// ============================================================
+// 节点卡片统一样式（匹配 g/ 的 .wf-node-card）
+// ============================================================
+
+const card: React.CSSProperties = {
+  background: '#fff',
+  borderRadius: 10,
+  border: '2px solid #e0e3e8',
   minWidth: 200,
-  boxShadow: '0 4px 24px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.03)',
+  boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
   overflow: 'hidden',
-});
+  cursor: 'pointer',
+  transition: 'border-color 0.2s, box-shadow 0.2s',
+};
 
 const header = (accent: string): React.CSSProperties => ({
   display: 'flex',
   alignItems: 'center',
   gap: 8,
-  padding: '10px 14px',
-  background: `${accent}0f`,
-  borderBottom: '1px solid #2a2a3d',
+  padding: '9px 14px',
+  background: accent === '#4b6cb7'
+    ? 'linear-gradient(to right, #4b6cb7, #182848)'
+    : accent === '#2e7d32'
+      ? 'linear-gradient(to right, #43a047, #2e7d32)'
+      : accent === '#e65100'
+        ? 'linear-gradient(to right, #ef6c00, #e65100)'
+        : `linear-gradient(to right, ${accent}, ${accent}dd)`,
+  color: '#fff',
+  borderBottom: 'none',
 });
-
-const headerIcon = (accent: string): React.CSSProperties => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 28,
-  height: 28,
-  borderRadius: 7,
-  background: `${accent}1e`,
-  color: accent,
-});
-
-const headerLabel: React.CSSProperties = {
-  fontWeight: 600,
-  fontSize: 13,
-  color: '#e2e4ed',
-};
 
 const body: React.CSSProperties = {
   padding: '10px 14px',
@@ -52,7 +50,7 @@ const body: React.CSSProperties = {
 
 const row: React.CSSProperties = {
   fontSize: 11,
-  color: '#8b8fa5',
+  color: '#666',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -71,16 +69,11 @@ const tag = (bg: string, fg: string): React.CSSProperties => ({
   alignSelf: 'flex-start',
 });
 
-// ============================================================
-// Handle 统一样式
-// ============================================================
-
 const handleStyle = (color: string): React.CSSProperties => ({
-  width: 9,
-  height: 9,
-  border: `2px solid #2a2a3d`,
+  width: 12,
+  height: 12,
+  border: '2px solid #fff',
   background: color,
-  transition: 'all 0.15s',
 });
 
 // ============================================================
@@ -88,12 +81,11 @@ const handleStyle = (color: string): React.CSSProperties => ({
 // ============================================================
 
 export const StartNode = memo(function StartNode({ data }: { data: StartNodeData }) {
-  const c = '#22c55e';
+  const c = '#4b6cb7';
   return (
-    <div style={card(c)}>
+    <div style={card}>
       <div style={header(c)}>
-        <div style={headerIcon(c)}><Play size={15} fill={c} /></div>
-        <span style={headerLabel}>{data.label}</span>
+        <Fa icon="fa-play" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
         <span style={row}>用户问题入口</span>
@@ -108,18 +100,17 @@ export const StartNode = memo(function StartNode({ data }: { data: StartNodeData
 // ============================================================
 
 export const AgentNode = memo(function AgentNode({ data }: { data: AgentNodeData }) {
-  const c = '#3b82f6';
+  const c = '#4b6cb7';
   return (
-    <div style={card(c)}>
+    <div style={card}>
       <div style={header(c)}>
-        <div style={headerIcon(c)}><Bot size={15} /></div>
-        <span style={headerLabel}>{data.label}</span>
+        <Fa icon="fa-robot" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
         {data.agentName && <span style={row}>名称: {data.agentName}</span>}
         {data.outputVar && <span style={row}>输出: {`{{${data.outputVar}}}`}</span>}
-        {data.condition && <span style={tag('#fbbf2420', '#fbbf24')}>条件: {data.condition}</span>}
-        {data.parallelGroup && <span style={tag('#a78bfa20', '#a78bfa')}>∥ {data.parallelGroup}</span>}
+        {data.condition && <span style={tag('#fff3e0', '#e65100')}>条件: {data.condition}</span>}
+        {data.parallelGroup && <span style={tag('#e8eaf6', '#4b6cb7')}>∥ {data.parallelGroup}</span>}
       </div>
       <Handle type="target" position={Position.Left} style={handleStyle(c)} />
       <Handle type="source" position={Position.Right} style={handleStyle(c)} />
@@ -132,17 +123,16 @@ export const AgentNode = memo(function AgentNode({ data }: { data: AgentNodeData
 // ============================================================
 
 export const ToolNode = memo(function ToolNode({ data }: { data: ToolNodeData }) {
-  const c = '#14b8a6';
+  const c = '#4b6cb7';
   return (
-    <div style={card(c)}>
+    <div style={card}>
       <div style={header(c)}>
-        <div style={headerIcon(c)}><Wrench size={15} /></div>
-        <span style={headerLabel}>{data.label}</span>
+        <Fa icon="fa-wrench" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
         {data.toolName && <span style={row}>工具: {data.toolName}</span>}
         {data.outputVar && <span style={row}>输出: {`{{${data.outputVar}}}`}</span>}
-        {data.condition && <span style={tag('#fbbf2420', '#fbbf24')}>条件: {data.condition}</span>}
+        {data.condition && <span style={tag('#fff3e0', '#e65100')}>条件: {data.condition}</span>}
       </div>
       <Handle type="target" position={Position.Left} style={handleStyle(c)} />
       <Handle type="source" position={Position.Right} style={handleStyle(c)} />
@@ -155,15 +145,14 @@ export const ToolNode = memo(function ToolNode({ data }: { data: ToolNodeData })
 // ============================================================
 
 export const VariableNode = memo(function VariableNode({ data }: { data: VariableNodeData }) {
-  const c = '#f59e0b';
+  const c = '#e65100';
   return (
-    <div style={card(c)}>
+    <div style={card}>
       <div style={header(c)}>
-        <div style={headerIcon(c)}><Database size={15} /></div>
-        <span style={headerLabel}>{data.label}</span>
+        <Fa icon="fa-database" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
-        <code style={{ ...row, fontFamily: 'JetBrains Mono, Fira Code, monospace', fontSize: 12, color: '#f59e0b' }}>
+        <code style={{ ...row, fontFamily: 'Consolas, Monaco, monospace', fontSize: 12, color: '#e65100' }}>
           {`{{${data.varName}}}`}
         </code>
       </div>
@@ -177,20 +166,19 @@ export const VariableNode = memo(function VariableNode({ data }: { data: Variabl
 // ============================================================
 
 export const ClassifierNode = memo(function ClassifierNode({ data }: { data: ClassifierNodeData }) {
-  const c = '#8b5cf6';
+  const c = '#4b6cb7';
   const cats = data.categories || [];
   return (
-    <div style={card(c)}>
+    <div style={card}>
       <div style={header(c)}>
-        <div style={headerIcon(c)}><GitBranch size={15} /></div>
-        <span style={headerLabel}>{data.label}</span>
+        <Fa icon="fa-code-branch" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
         <span style={row}>输出: {`{{${data.outputVar || 'intent'}}}`}</span>
         {cats.length > 0 && (
           <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
             {cats.map((cat, i) => (
-              <span key={i} style={tag('#8b5cf620', '#c4b5fd')}>{cat.name}</span>
+              <span key={i} style={tag('#e8eaf6', '#4b6cb7')}>{cat.name}</span>
             ))}
           </div>
         )}

@@ -1,34 +1,32 @@
 import React, { type DragEvent } from 'react';
-import { Play, Bot, Wrench, Database, GitBranch } from 'lucide-react';
 
 // ============================================================
 // 节点类型定义
 // ============================================================
 
 const nodeTypes = [
-  { type: 'start', label: '开始', Icon: Play, color: '#22c55e', desc: '工作流入口' },
-  { type: 'agent', label: 'AI Agent', Icon: Bot, color: '#3b82f6', desc: 'AI 智能体节点' },
-  { type: 'tool', label: '工具', Icon: Wrench, color: '#14b8a6', desc: '自定义工具调用' },
-  { type: 'variable', label: '系统变量', Icon: Database, color: '#f59e0b', desc: '输出系统变量值' },
-  { type: 'classifier', label: '意图分类', Icon: GitBranch, color: '#8b5cf6', desc: 'LLM 意图分类路由' },
+  { type: 'start', label: '开始', icon: 'fa-play', color: '#4b6cb7', desc: '工作流入口' },
+  { type: 'agent', label: 'AI Agent', icon: 'fa-robot', color: '#4b6cb7', desc: 'AI 智能体节点' },
+  { type: 'tool', label: '工具', icon: 'fa-wrench', color: '#4b6cb7', desc: '自定义工具调用' },
+  { type: 'variable', label: '系统变量', icon: 'fa-database', color: '#e65100', desc: '输出系统变量值' },
+  { type: 'classifier', label: '意图分类', icon: 'fa-code-branch', color: '#4b6cb7', desc: 'LLM 意图分类路由' },
 ] as const;
 
 // ============================================================
-// 样式
+// 样式（匹配 g/ 的 cfg-sidebar 风格）
 // ============================================================
 
 const sidebarStyle: React.CSSProperties = {
   width: 220,
-  background: '#14141f',
-  borderRight: '1px solid #1e1e30',
+  background: 'linear-gradient(180deg, #f8f9fb 0%, #eef1f6 100%)',
+  borderRight: '1px solid #e0e3e8',
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
 };
 
 const titleBlock: React.CSSProperties = {
-  padding: '18px 16px 14px',
-  borderBottom: '1px solid #1e1e30',
+  padding: '16px 16px 14px',
   display: 'flex',
   alignItems: 'center',
   gap: 8,
@@ -37,8 +35,7 @@ const titleBlock: React.CSSProperties = {
 const titleText: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 700,
-  color: '#e2e4ed',
-  letterSpacing: '-0.01em',
+  color: '#333',
 };
 
 const scroller: React.CSSProperties = {
@@ -50,56 +47,51 @@ const scroller: React.CSSProperties = {
 const groupLabel: React.CSSProperties = {
   fontSize: 10,
   fontWeight: 700,
-  color: '#5b5d78',
+  color: '#999',
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
   margin: '12px 6px 6px',
 };
 
-const item = (color: string): React.CSSProperties => ({
+const item: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 10,
-  padding: '10px 12px',
+  padding: '10px 14px',
   marginBottom: 2,
   borderRadius: 8,
   cursor: 'grab',
   fontSize: 13,
-  color: '#c5c6d4',
+  color: '#555',
+  fontWeight: 500,
   transition: 'all 0.12s ease',
   userSelect: 'none',
-  background: 'transparent',
-});
+  borderLeft: '3px solid transparent',
+};
 
 const iconBox = (color: string): React.CSSProperties => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: 30,
-  height: 30,
-  borderRadius: 8,
-  background: `${color}18`,
+  width: 28,
+  height: 28,
+  borderRadius: 7,
+  background: `${color}15`,
   color: color,
   flexShrink: 0,
+  fontSize: 13,
 });
 
 const hintStyle: React.CSSProperties = {
   fontSize: 10,
-  color: '#4b4d64',
+  color: '#999',
   padding: '12px 16px',
-  borderTop: '1px solid #1e1e30',
+  borderTop: '1px solid #dce2ec',
   lineHeight: 1.6,
 };
 
-// Inline hover style (simulated via CSS variable approach)
-const hoverInjection = `
-.sidebar-item:hover {
-  background: #ffffff08 !important;
-}
-`;
-
 // ============================================================
-// Sidebar 组件
+// 组件
 // ============================================================
 
 export function Sidebar() {
@@ -108,43 +100,50 @@ export function Sidebar() {
     event.dataTransfer.effectAllowed = 'move';
   };
 
+  const groups = [
+    { label: '基础', types: ['start'] },
+    { label: '处理节点', types: ['agent', 'tool'] },
+    { label: '数据 & 路由', types: ['variable', 'classifier'] },
+  ];
+
   return (
     <div style={sidebarStyle}>
-      <style>{hoverInjection}</style>
       <div style={titleBlock}>
-        <span style={{ fontSize: 16 }}>🧩</span>
+        <i className="fas fa-project-diagram" style={{ color: '#4b6cb7', fontSize: 16 }} />
         <span style={titleText}>节点面板</span>
       </div>
 
       <div style={scroller}>
-        {['基础', '处理节点', '数据 & 路由'].map((group) => {
-          const items = group === '基础'
-            ? nodeTypes.filter((n) => n.type === 'start')
-            : group === '处理节点'
-              ? nodeTypes.filter((n) => n.type === 'agent' || n.type === 'tool')
-              : nodeTypes.filter((n) => n.type === 'variable' || n.type === 'classifier');
-
+        {groups.map((group) => {
+          const items = nodeTypes.filter((n) => group.types.includes(n.type));
           return (
-            <React.Fragment key={group}>
-              <div style={groupLabel}>{group}</div>
-              {items.map((n) => {
-                const IconComp = n.Icon;
-                return (
-                  <div
-                    key={n.type}
-                    className="sidebar-item"
-                    style={item(n.color)}
-                    draggable
-                    onDragStart={(e) => onDragStart(e, n.type)}
-                    title={n.desc}
-                  >
-                    <div style={iconBox(n.color)}>
-                      <IconComp size={16} strokeWidth={1.8} />
-                    </div>
-                    <span>{n.label}</span>
+            <React.Fragment key={group.label}>
+              <div style={groupLabel}>{group.label}</div>
+              {items.map((n) => (
+                <div
+                  key={n.type}
+                  className="sidebar-item"
+                  style={item}
+                  draggable
+                  onDragStart={(e) => onDragStart(e, n.type)}
+                  title={n.desc}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(75,108,183,0.06)';
+                    e.currentTarget.style.color = '#4b6cb7';
+                    e.currentTarget.style.borderLeftColor = '#4b6cb7';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = '#555';
+                    e.currentTarget.style.borderLeftColor = 'transparent';
+                  }}
+                >
+                  <div style={iconBox(n.color)}>
+                    <i className={`fas ${n.icon}`} />
                   </div>
-                );
-              })}
+                  <span>{n.label}</span>
+                </div>
+              ))}
             </React.Fragment>
           );
         })}
