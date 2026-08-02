@@ -8,7 +8,7 @@ const nodeTypes = [
   { type: 'start', label: '开始', icon: 'fa-play', color: '#4b6cb7', desc: '工作流入口' },
   { type: 'agent', label: 'AI Agent', icon: 'fa-robot', color: '#4b6cb7', desc: 'AI 智能体节点' },
   { type: 'tool', label: '工具', icon: 'fa-wrench', color: '#4b6cb7', desc: '自定义工具调用' },
-  { type: 'variable', label: '系统变量', icon: 'fa-database', color: '#e65100', desc: '输出系统变量值' },
+  { type: 'variable', label: '系统变量', icon: 'fa-database', color: '#4b6cb7', desc: '输出系统变量值' },
   { type: 'classifier', label: '意图分类', icon: 'fa-code-branch', color: '#4b6cb7', desc: 'LLM 意图分类路由' },
 ] as const;
 

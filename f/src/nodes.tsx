@@ -25,21 +25,15 @@ const card: React.CSSProperties = {
   transition: 'border-color 0.2s, box-shadow 0.2s',
 };
 
-const header = (accent: string): React.CSSProperties => ({
+const header: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 8,
   padding: '9px 14px',
-  background: accent === '#4b6cb7'
-    ? 'linear-gradient(to right, #4b6cb7, #182848)'
-    : accent === '#2e7d32'
-      ? 'linear-gradient(to right, #43a047, #2e7d32)'
-      : accent === '#e65100'
-        ? 'linear-gradient(to right, #ef6c00, #e65100)'
-        : `linear-gradient(to right, ${accent}, ${accent}dd)`,
+  background: 'linear-gradient(to right, #4b6cb7, #182848)',
   color: '#fff',
   borderBottom: 'none',
-});
+};
 
 const body: React.CSSProperties = {
   padding: '10px 14px',
@@ -84,7 +78,7 @@ export const StartNode = memo(function StartNode({ data }: { data: StartNodeData
   const c = '#4b6cb7';
   return (
     <div style={card}>
-      <div style={header(c)}>
+      <div style={header}>
         <Fa icon="fa-play" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
@@ -103,7 +97,7 @@ export const AgentNode = memo(function AgentNode({ data }: { data: AgentNodeData
   const c = '#4b6cb7';
   return (
     <div style={card}>
-      <div style={header(c)}>
+      <div style={header}>
         <Fa icon="fa-robot" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
@@ -126,7 +120,7 @@ export const ToolNode = memo(function ToolNode({ data }: { data: ToolNodeData })
   const c = '#4b6cb7';
   return (
     <div style={card}>
-      <div style={header(c)}>
+      <div style={header}>
         <Fa icon="fa-wrench" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
@@ -145,14 +139,14 @@ export const ToolNode = memo(function ToolNode({ data }: { data: ToolNodeData })
 // ============================================================
 
 export const VariableNode = memo(function VariableNode({ data }: { data: VariableNodeData }) {
-  const c = '#e65100';
+  const c = '#4b6cb7';
   return (
     <div style={card}>
-      <div style={header(c)}>
+      <div style={header}>
         <Fa icon="fa-database" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
-        <code style={{ ...row, fontFamily: 'Consolas, Monaco, monospace', fontSize: 12, color: '#e65100' }}>
+        <code style={{ ...row, fontFamily: 'Consolas, Monaco, monospace', fontSize: 12, color: '#4b6cb7' }}>
           {`{{${data.varName}}}`}
         </code>
       </div>
@@ -170,7 +164,7 @@ export const ClassifierNode = memo(function ClassifierNode({ data }: { data: Cla
   const cats = data.categories || [];
   return (
     <div style={card}>
-      <div style={header(c)}>
+      <div style={header}>
         <Fa icon="fa-code-branch" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
