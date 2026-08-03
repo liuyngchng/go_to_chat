@@ -125,3 +125,8 @@ input:focus, textarea:focus, select:focus {
   border-color: #4b6cb7 !important;
   box-shadow: 0 0 0 3px rgba(75,108,183,0.12);
 }
+
+/* ---- 顶部工具栏输入框 placeholder 颜色 ---- */
+.toolbar-input::placeholder {
+  color: rgba(255, 255, 255, 0.65) !important;
+}

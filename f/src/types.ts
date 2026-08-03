@@ -1,112 +1,151 @@
 // ============================================================
-// 与 Go 后端 model.WorkflowDef / WorkflowNode 对应的 TypeScript 类型
-// 参考: g/internal/model/types.go
+// 工作流设计工具的 TypeScript 类型定义
+// 专注头脑风暴 + 自描述导出，不依赖后端
 // ============================================================
 
-/** 节点类型 */
-export type NodeType = 'start' | 'agent' | 'tool' | 'variable' | 'classifier';
+// ============================================================
+// 节点类型
+// ============================================================
 
-/** 意图分类类别 */
-export interface IntentCategory {
-  name: string;        // 类别标识，如 "emergency"
-  description: string; // 类别描述
-  keywords: string[];  // 关键词列表
+export type NodeType = 'start' | 'agent' | 'tool' | 'variable' | 'branch' | 'note';
+
+// ============================================================
+// React Flow 内部节点 data 类型
+// 每种节点都带 purpose 字段，便于 AI 理解
+// ============================================================
+
+export interface StartNodeData {
+  nodeType: 'start';
+  label: string;
+  purpose: string;
 }
 
-/** 意图分类器定义 (对应 Go ClassifierDef) */
-export interface ClassifierDef {
-  prompt: string;
-  output_var: string;       // 默认 "intent"
-  categories: IntentCategory[];
-}
-
-/** 工作流节点 (对应 Go WorkflowNode) */
-export interface WorkflowNode {
-  id: string;
-  agent_id: number;
-  agent_name: string;
-  input_template: string;
-  output_var: string;
-  order_index: number;
-  is_final: boolean;
-  condition: string;
-  next_nodes: string[];
-  parallel_group: string;
-}
-
-/** 工作流定义 (对应 Go WorkflowDef) */
-export interface WorkflowDef {
-  name: string;
-  description: string;
-  classifier: ClassifierDef | null;
-  nodes: WorkflowNode[];
-}
-
-/** 自定义节点的 data 结构 */
 export interface AgentNodeData {
   nodeType: 'agent';
   label: string;
-  agentId: number;
+  purpose: string;
   agentName: string;
   inputTemplate: string;
   outputVar: string;
-  condition: string;
   parallelGroup: string;
 }
 
 export interface ToolNodeData {
   nodeType: 'tool';
   label: string;
+  purpose: string;
   toolName: string;
   toolParams: string;
   outputVar: string;
-  condition: string;
   parallelGroup: string;
 }
 
 export interface VariableNodeData {
   nodeType: 'variable';
   label: string;
+  purpose: string;
   varName: string;
   varDesc: string;
 }
 
-export interface ClassifierNodeData {
-  nodeType: 'classifier';
+export interface BranchNodeData {
+  nodeType: 'branch';
   label: string;
-  outputVar: string;
-  prompt: string;
-  categories: IntentCategory[];
+  purpose: string;
+  /** 分支依据的变量名，如 intent / user_query */
+  inputVar: string;
 }
 
-export interface StartNodeData {
-  nodeType: 'start';
+export interface NoteNodeData {
+  nodeType: 'note';
   label: string;
+  purpose: string;
+  content: string;
+  color: string;
 }
 
 /** 所有节点 data 的联合类型 */
 export type AppNodeData =
+  | StartNodeData
   | AgentNodeData
   | ToolNodeData
   | VariableNodeData
-  | ClassifierNodeData
-  | StartNodeData;
+  | BranchNodeData
+  | NoteNodeData;
 
-/** 系统变量列表 */
-export const SYSTEM_VARS = [
-  { name: 'sys.user_query', description: '用户当前问题' },
-  { name: 'sys.history', description: '历史对话记录' },
-  { name: 'sys.cur_date', description: '当前日期 (YYYY-MM-DD)' },
-  { name: 'sys.cur_week', description: '当前星期几（中文）' },
-  { name: 'sys.kb_context', description: '知识库检索结果' },
-  { name: 'sys.intent', description: '意图分类结果' },
-];
+// ============================================================
+// 自描述导出格式 — 用于导出 JSON，AI 可直接读懂
+// ============================================================
 
-/** 兼容旧版变量名 */
-export const LEGACY_VARS = [
-  { name: 'user_query', description: '用户当前问题（旧版）' },
-  { name: 'history', description: '历史对话记录（旧版）' },
-  { name: 'cur_date', description: '当前日期（旧版）' },
-  { name: 'cur_week', description: '当前星期（旧版）' },
-  { name: 'intent', description: '意图分类结果（旧版）' },
-];
+/** 导出格式中的单个节点 */
+export interface DesignDocNode {
+  id: string;
+  type: NodeType;
+  label: string;
+  purpose: string;
+
+  // Agent 相关
+  agentName?: string;
+  inputTemplate?: string;
+  outputVar?: string;
+  parallelGroup?: string;
+
+  // Tool 相关
+  toolName?: string;
+  toolParams?: string;
+
+  // Variable 相关
+  varName?: string;
+  varDesc?: string;
+
+  // Branch 相关（条件分支）
+  branchInputVar?: string;
+
+  // Note 相关
+  content?: string;
+  color?: string;
+}
+
+/** 导出格式中的边 */
+export interface DesignDocEdge {
+  from: string;
+  to: string;
+  /** 分支条件：匹配时走此边，default 表示兜底，无值表示无条件 */
+  condition?: string;
+  /** @deprecated 使用 condition */
+  label?: string;
+}
+
+/** 自描述工作流设计文档 */
+export interface DesignDoc {
+  /** schema 版本，AI 可据此判断格式 */
+  _schema: 'workflow-design-doc/v1';
+  /** 工作流名称 */
+  name: string;
+  /** 简短描述 */
+  description: string;
+  /** 设计意图说明 — AI 读这个就知道整体要做什么 */
+  purpose: string;
+  /** 元数据 */
+  metadata: {
+    createdAt: string;
+    tags: string[];
+  };
+  /** 顶层 I/O 摘要（AI 友好） */
+  _summary?: {
+    /** 工作流入参列表 */
+    inputs: string[];
+    /** 工作流出参列表 */
+    outputs: string[];
+  };
+  /** 节点列表 */
+  nodes: DesignDocNode[];
+  /** 边列表 */
+  edges: DesignDocEdge[];
+}
+
+// ============================================================
+// 注意：变量节点可引用上游节点的 outputVar，
+// 模板中使用 {{变量名}} 引用。
+// 本工具不预设任何系统变量，变量名由用户自由定义。
+// ============================================================

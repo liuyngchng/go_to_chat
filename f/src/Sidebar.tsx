@@ -8,8 +8,8 @@ const nodeTypes = [
   { type: 'start', label: '开始', icon: 'fa-play', color: '#4b6cb7', desc: '工作流入口' },
   { type: 'agent', label: 'AI Agent', icon: 'fa-robot', color: '#4b6cb7', desc: 'AI 智能体节点' },
   { type: 'tool', label: '工具', icon: 'fa-wrench', color: '#4b6cb7', desc: '自定义工具调用' },
-  { type: 'variable', label: '系统变量', icon: 'fa-database', color: '#4b6cb7', desc: '输出系统变量值' },
-  { type: 'classifier', label: '意图分类', icon: 'fa-code-branch', color: '#4b6cb7', desc: 'LLM 意图分类路由' },
+  { type: 'branch', label: '条件分支', icon: 'fa-code-branch', color: '#e67e22', desc: '按变量值分流（类似 switch/case）' },
+  { type: 'note', label: '便签', icon: 'fa-sticky-note', color: '#f9a825', desc: '注释/便签，仅供说明' },
 ] as const;
 
 // ============================================================
@@ -103,7 +103,8 @@ export function Sidebar() {
   const groups = [
     { label: '基础', types: ['start'] },
     { label: '处理节点', types: ['agent', 'tool'] },
-    { label: '数据 & 路由', types: ['variable', 'classifier'] },
+    { label: '数据 & 路由', types: ['branch'] },
+    { label: '注释', types: ['note'] },
   ];
 
   return (

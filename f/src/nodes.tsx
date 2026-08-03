@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import type { AgentNodeData, ToolNodeData, VariableNodeData, ClassifierNodeData, StartNodeData } from './types';
+import type { AgentNodeData, ToolNodeData, VariableNodeData, BranchNodeData, StartNodeData, NoteNodeData } from './types';
 
 // ============================================================
 // Font Awesome 图标
@@ -83,6 +83,7 @@ export const StartNode = memo(function StartNode({ data }: { data: StartNodeData
       </div>
       <div style={body}>
         <span style={row}>用户问题入口</span>
+        {data.purpose && <span style={{ ...row, color: '#888', fontStyle: 'italic' }}>💡 {data.purpose}</span>}
       </div>
       <Handle type="source" position={Position.Right} style={handleStyle(c)} />
     </div>
@@ -101,9 +102,8 @@ export const AgentNode = memo(function AgentNode({ data }: { data: AgentNodeData
         <Fa icon="fa-robot" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
       </div>
       <div style={body}>
-        {data.agentName && <span style={row}>名称: {data.agentName}</span>}
         {data.outputVar && <span style={row}>输出: {`{{${data.outputVar}}}`}</span>}
-        {data.condition && <span style={tag('#fff3e0', '#e65100')}>条件: {data.condition}</span>}
+        {data.purpose && <span style={{ ...row, color: '#888', fontStyle: 'italic' }}>💡 {data.purpose}</span>}
         {data.parallelGroup && <span style={tag('#e8eaf6', '#4b6cb7')}>∥ {data.parallelGroup}</span>}
       </div>
       <Handle type="target" position={Position.Left} style={handleStyle(c)} />
@@ -126,7 +126,7 @@ export const ToolNode = memo(function ToolNode({ data }: { data: ToolNodeData })
       <div style={body}>
         {data.toolName && <span style={row}>工具: {data.toolName}</span>}
         {data.outputVar && <span style={row}>输出: {`{{${data.outputVar}}}`}</span>}
-        {data.condition && <span style={tag('#fff3e0', '#e65100')}>条件: {data.condition}</span>}
+        {data.purpose && <span style={{ ...row, color: '#888', fontStyle: 'italic' }}>💡 {data.purpose}</span>}
       </div>
       <Handle type="target" position={Position.Left} style={handleStyle(c)} />
       <Handle type="source" position={Position.Right} style={handleStyle(c)} />
@@ -149,6 +149,7 @@ export const VariableNode = memo(function VariableNode({ data }: { data: Variabl
         <code style={{ ...row, fontFamily: 'Consolas, Monaco, monospace', fontSize: 12, color: '#4b6cb7' }}>
           {`{{${data.varName}}}`}
         </code>
+        {data.purpose && <span style={{ ...row, color: '#888', fontStyle: 'italic' }}>💡 {data.purpose}</span>}
       </div>
       <Handle type="source" position={Position.Right} style={handleStyle(c)} />
     </div>
@@ -156,29 +157,64 @@ export const VariableNode = memo(function VariableNode({ data }: { data: Variabl
 });
 
 // ============================================================
-// ClassifierNode
+// BranchNode（条件分支 — switch/case）
 // ============================================================
 
-export const ClassifierNode = memo(function ClassifierNode({ data }: { data: ClassifierNodeData }) {
+export const BranchNode = memo(function BranchNode({ data }: { data: BranchNodeData }) {
   const c = '#4b6cb7';
-  const cats = data.categories || [];
   return (
-    <div style={card}>
+    <div style={{
+      ...card,
+      borderLeft: `6px solid #e67e22`,
+    }}>
       <div style={header}>
         <Fa icon="fa-code-branch" /> <span style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 9, background: 'rgba(255,255,255,0.2)', padding: '2px 7px', borderRadius: 4 }}>
+          SWITCH
+        </span>
       </div>
       <div style={body}>
-        <span style={row}>输出: {`{{${data.outputVar || 'intent'}}}`}</span>
-        {cats.length > 0 && (
-          <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-            {cats.map((cat, i) => (
-              <span key={i} style={tag('#e8eaf6', '#4b6cb7')}>{cat.name}</span>
-            ))}
-          </div>
-        )}
+        {data.inputVar && <span style={row}>依据: {`{{${data.inputVar}}}`}</span>}
+        {data.purpose && <span style={{ ...row, color: '#888', fontStyle: 'italic' }}>💡 {data.purpose}</span>}
       </div>
       <Handle type="target" position={Position.Left} style={handleStyle(c)} />
       <Handle type="source" position={Position.Right} style={handleStyle(c)} />
+    </div>
+  );
+});
+
+// ============================================================
+// NoteNode（便签/注释节点）
+// ============================================================
+
+export const NoteNode = memo(function NoteNode({ data }: { data: NoteNodeData }) {
+  const noteColors: Record<string, { bg: string; border: string; text: string }> = {
+    yellow: { bg: '#fff9c4', border: '#f9a825', text: '#5d4037' },
+    green: { bg: '#c8e6c9', border: '#43a047', text: '#1b5e20' },
+    blue: { bg: '#bbdefb', border: '#1e88e5', text: '#0d47a1' },
+    pink: { bg: '#f8bbd0', border: '#e91e63', text: '#880e4f' },
+    purple: { bg: '#e1bee7', border: '#8e24aa', text: '#4a148c' },
+  };
+  const c = noteColors[data.color] || noteColors.yellow;
+
+  return (
+    <div style={{
+      background: c.bg,
+      border: `2px solid ${c.border}`,
+      borderRadius: 10,
+      minWidth: 180,
+      maxWidth: 280,
+      padding: '12px 16px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+    }}>
+      <div style={{ fontWeight: 600, fontSize: 12, color: c.text, marginBottom: 4 }}>
+        {data.label}
+      </div>
+      <div style={{ fontSize: 11, color: c.text, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+        {data.content || '（空）'}
+      </div>
     </div>
   );
 });
@@ -192,5 +228,6 @@ export const nodeTypes = {
   agent: AgentNode,
   tool: ToolNode,
   variable: VariableNode,
-  classifier: ClassifierNode,
+  branch: BranchNode,
+  note: NoteNode,
 };

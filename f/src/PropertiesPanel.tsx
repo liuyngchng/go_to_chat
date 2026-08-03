@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import type { Node } from '@xyflow/react';
-import type { AppNodeData, AgentNodeData, ToolNodeData, VariableNodeData, ClassifierNodeData, IntentCategory } from './types';
-import { SYSTEM_VARS, LEGACY_VARS } from './types';
+import type { Node, Edge } from '@xyflow/react';
+import type { AppNodeData, AgentNodeData, ToolNodeData, VariableNodeData, BranchNodeData, NoteNodeData } from './types';
+import { findDuplicateOutputVars, resolveTemplateVars, getUpstreamVars } from './validation';
 
 // ============================================================
 // 样式（匹配 g/ 后台面板风格）
@@ -66,16 +66,37 @@ const dangerBtn: React.CSSProperties = {
 
 interface Props {
   node: Node | null;
-  onUpdate: (id: string, data: Partial<AppNodeData>) => void;
-  onDelete: (id: string) => void;
+  edge: Edge | null;
+  nodes: Node[];
+  edges: Edge[];
+  onUpdateNode: (id: string, data: Partial<AppNodeData>) => void;
+  onUpdateEdge: (edgeId: string, updates: Partial<Edge>) => void;
+  onDeleteNode: (id: string) => void;
 }
 
-export function PropertiesPanel({ node, onUpdate, onDelete }: Props) {
+export function PropertiesPanel({ node, edge, nodes, edges, onUpdateNode, onUpdateEdge, onDeleteNode }: Props) {
+  // 选中边时显示边面板
+  if (edge && !node) {
+    return (
+      <div style={panel}>
+        <div style={hdr}>
+          连线属性
+          <div style={{ fontSize: 10, color: '#999', fontWeight: 400, marginTop: 3 }}>
+            {edge.source} → {edge.target}
+          </div>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <EdgePanel edge={edge} onUpdateEdge={onUpdateEdge} />
+        </div>
+      </div>
+    );
+  }
+
   if (!node) {
     return (
       <div style={panel}>
         <div style={hdr}>属性面板</div>
-        <div style={emptyMsg}>点击画布上的节点<br />查看和编辑属性</div>
+        <div style={emptyMsg}>点击画布上的节点或连线<br />查看和编辑属性</div>
       </div>
     );
   }
@@ -92,22 +113,26 @@ export function PropertiesPanel({ node, onUpdate, onDelete }: Props) {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {data.nodeType === 'agent' && <AgentPanel node={node} data={data} onUpdate={onUpdate} />}
-        {data.nodeType === 'tool' && <ToolPanel node={node} data={data} onUpdate={onUpdate} />}
-        {data.nodeType === 'variable' && <VarPanel node={node} data={data} onUpdate={onUpdate} />}
-        {data.nodeType === 'classifier' && <ClassifierPanel node={node} data={data} onUpdate={onUpdate} />}
+        {data.nodeType === 'agent' && <AgentPanel node={node} data={data} onUpdate={onUpdateNode} nodes={nodes} edges={edges} />}
+        {data.nodeType === 'tool' && <ToolPanel node={node} data={data} onUpdate={onUpdateNode} nodes={nodes} edges={edges} />}
+        {data.nodeType === 'variable' && <VarPanel node={node} data={data} onUpdate={onUpdateNode} />}
+        {data.nodeType === 'branch' && <BranchPanel node={node} data={data} onUpdate={onUpdateNode} />}
+        {data.nodeType === 'note' && <NotePanel node={node} data={data} onUpdate={onUpdateNode} />}
         {data.nodeType === 'start' && (
-          <div style={sect}>
-            <div style={{ color: '#888', fontSize: 12, lineHeight: 1.6 }}>
-              入口节点 — 用户问题从这里输入，流向后续处理节点。
+          <>
+            <div style={sect}>
+              <div style={{ color: '#888', fontSize: 12, lineHeight: 1.6 }}>
+                入口节点 — 用户问题从这里输入，流向后续处理节点。
+              </div>
             </div>
-          </div>
+            <PurposeField node={node} data={data} onUpdate={onUpdateNode} />
+          </>
         )}
       </div>
 
       {data.nodeType !== 'start' && (
         <div style={{ padding: '12px 18px', borderTop: '1px solid #f0f0f0' }}>
-          <button style={dangerBtn} onClick={() => { if (confirm('确定删除节点？')) onDelete(node.id); }}>
+          <button style={dangerBtn} onClick={() => { if (confirm('确定删除节点？')) onDeleteNode(node.id); }}>
             <i className="fas fa-trash" style={{ marginRight: 4 }} /> 删除节点
           </button>
         </div>
@@ -120,32 +145,63 @@ export function PropertiesPanel({ node, onUpdate, onDelete }: Props) {
 // Agent 属性
 // ============================================================
 
-function AgentPanel({ node, data, onUpdate }: { node: Node; data: AgentNodeData; onUpdate: Props['onUpdate'] }) {
+function AgentPanel({ node, data, onUpdate, nodes, edges }: {
+  node: Node; data: AgentNodeData;
+  onUpdate: (id: string, data: Partial<AppNodeData>) => void;
+  nodes: Node[]; edges: Edge[];
+}) {
+  const duplicates = findDuplicateOutputVars(nodes);
+  const conflict = data.outputVar ? duplicates.get(data.outputVar) : undefined;
+  const isConflict = conflict && conflict.length > 1 && conflict.includes(node.id);
+
+  const templateVars = data.inputTemplate
+    ? resolveTemplateVars(data.inputTemplate, node.id, nodes, edges)
+    : [];
+  const undefinedVars = templateVars.filter((v) => !v.defined);
+
   return (
     <>
-      <FormField label="Agent ID">
-        <input style={inp} type="number" value={data.agentId || ''} placeholder="数据库 ID"
-          onChange={(e) => onUpdate(node.id, { agentId: parseInt(e.target.value) || 0 } as any)} />
-      </FormField>
+      <PurposeField node={node} data={data} onUpdate={onUpdate} />
       <FormField label="名称">
         <input style={inp} value={data.agentName || ''} placeholder="如：客服助手"
-          onChange={(e) => onUpdate(node.id, { agentName: e.target.value } as any)} />
+          onChange={(e) => onUpdate(node.id, { agentName: e.target.value, label: e.target.value } as any)} />
       </FormField>
       <FormField label="输入模板">
         <textarea style={txt} value={data.inputTemplate || ''}
-          placeholder={'使用 {{变量名}} 引用上游输出\n例：用户问题：{{sys.user_query}}'}
+          placeholder={'使用 {{变量名}} 引用上游输出\n例：用户问题：{{user_query}}'}
           onChange={(e) => onUpdate(node.id, { inputTemplate: e.target.value } as any)} />
-        <VarSuggest onSelect={(v) => onUpdate(node.id, { inputTemplate: (data.inputTemplate || '') + `{{${v}}}` } as any)} />
+        <VarSuggest onSelect={(v) => onUpdate(node.id, { inputTemplate: (data.inputTemplate || '') + `{{${v}}}` } as any)}
+          nodeId={node.id} nodes={nodes} edges={edges} />
+        {undefinedVars.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            {undefinedVars.map((v) => (
+              <div key={v.name} style={{ fontSize: 11, color: '#e67e22', padding: '3px 0' }}>
+                ⚠️ <code>{`{{${v.name}}}`}</code> 上游未定义
+              </div>
+            ))}
+          </div>
+        )}
+        {templateVars.filter((v) => v.defined).length > 0 && (
+          <div style={{ marginTop: 4 }}>
+            {templateVars.filter((v) => v.defined).map((v) => (
+              <div key={v.name} style={{ fontSize: 11, color: '#2e7d32', padding: '2px 0' }}>
+                ✓ <code>{`{{${v.name}}}`}</code> 来自 {v.definedByLabel || v.definedBy}
+              </div>
+            ))}
+          </div>
+        )}
       </FormField>
       <FormField label="输出变量名">
-        <input style={inp} value={data.outputVar || ''} placeholder="如 my_output"
+        <input style={{ ...inp, borderColor: isConflict ? '#e53935' : '#e0e3e8' }} value={data.outputVar || ''} placeholder="如 my_output"
           onChange={(e) => onUpdate(node.id, { outputVar: e.target.value } as any)} />
-        <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>下游可通过 {`{{${data.outputVar || 'xxx'}}}`} 引用</div>
-      </FormField>
-      <FormField label="触发条件">
-        <input style={inp} value={data.condition || ''} placeholder="如 emergency，空=无条件执行"
-          onChange={(e) => onUpdate(node.id, { condition: e.target.value } as any)} />
-        <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>匹配意图分类结果时执行</div>
+        {isConflict && (
+          <div style={{ fontSize: 11, color: '#e53935', marginTop: 4 }}>
+            ✗ 变量名 "{data.outputVar}" 与 {conflict!.filter((id) => id !== node.id).join(', ')} 冲突
+          </div>
+        )}
+        {!isConflict && data.outputVar && (
+          <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>下游可通过 {`{{${data.outputVar}}}`} 引用</div>
+        )}
       </FormField>
       <FormField label="并行组">
         <input style={inp} value={data.parallelGroup || ''} placeholder="相同组名并行执行"
@@ -159,26 +215,63 @@ function AgentPanel({ node, data, onUpdate }: { node: Node; data: AgentNodeData;
 // Tool 属性
 // ============================================================
 
-function ToolPanel({ node, data, onUpdate }: { node: Node; data: ToolNodeData; onUpdate: Props['onUpdate'] }) {
+function ToolPanel({ node, data, onUpdate, nodes, edges }: {
+  node: Node; data: ToolNodeData;
+  onUpdate: (id: string, data: Partial<AppNodeData>) => void;
+  nodes: Node[]; edges: Edge[];
+}) {
+  const duplicates = findDuplicateOutputVars(nodes);
+  const conflict = data.outputVar ? duplicates.get(data.outputVar) : undefined;
+  const isConflict = conflict && conflict.length > 1 && conflict.includes(node.id);
+
+  const templateVars = data.toolParams
+    ? resolveTemplateVars(data.toolParams, node.id, nodes, edges)
+    : [];
+  const undefinedVars = templateVars.filter((v) => !v.defined);
+
   return (
     <>
+      <PurposeField node={node} data={data} onUpdate={onUpdate} />
       <FormField label="工具名称">
         <input style={inp} value={data.toolName || ''} placeholder="如 kb_search"
-          onChange={(e) => onUpdate(node.id, { toolName: e.target.value } as any)} />
+          onChange={(e) => onUpdate(node.id, { toolName: e.target.value, label: e.target.value } as any)} />
       </FormField>
       <FormField label="参数（JSON / 模板）">
         <textarea style={txt} value={data.toolParams || ''}
-          placeholder={'{"query": "{{sys.user_query}}", "top_k": 5}'}
+          placeholder={'{"query": "{{user_query}}", "top_k": 5}'}
           onChange={(e) => onUpdate(node.id, { toolParams: e.target.value } as any)} />
-        <VarSuggest onSelect={(v) => onUpdate(node.id, { toolParams: (data.toolParams || '') + `{{${v}}}` } as any)} />
+        <VarSuggest onSelect={(v) => onUpdate(node.id, { toolParams: (data.toolParams || '') + `{{${v}}}` } as any)}
+          nodeId={node.id} nodes={nodes} edges={edges} />
+        {undefinedVars.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            {undefinedVars.map((v) => (
+              <div key={v.name} style={{ fontSize: 11, color: '#e67e22', padding: '3px 0' }}>
+                ⚠️ <code>{`{{${v.name}}}`}</code> 上游未定义
+              </div>
+            ))}
+          </div>
+        )}
+        {templateVars.filter((v) => v.defined).length > 0 && (
+          <div style={{ marginTop: 4 }}>
+            {templateVars.filter((v) => v.defined).map((v) => (
+              <div key={v.name} style={{ fontSize: 11, color: '#2e7d32', padding: '2px 0' }}>
+                ✓ <code>{`{{${v.name}}}`}</code> 来自 {v.definedByLabel || v.definedBy}
+              </div>
+            ))}
+          </div>
+        )}
       </FormField>
       <FormField label="输出变量名">
-        <input style={inp} value={data.outputVar || ''} placeholder="如 tool_result"
+        <input style={{ ...inp, borderColor: isConflict ? '#e53935' : '#e0e3e8' }} value={data.outputVar || ''} placeholder="如 tool_result"
           onChange={(e) => onUpdate(node.id, { outputVar: e.target.value } as any)} />
-      </FormField>
-      <FormField label="触发条件">
-        <input style={inp} value={data.condition || ''} placeholder="如 emergency"
-          onChange={(e) => onUpdate(node.id, { condition: e.target.value } as any)} />
+        {isConflict && (
+          <div style={{ fontSize: 11, color: '#e53935', marginTop: 4 }}>
+            ✗ 变量名 "{data.outputVar}" 与 {conflict!.filter((id) => id !== node.id).join(', ')} 冲突
+          </div>
+        )}
+        {!isConflict && data.outputVar && (
+          <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>下游可通过 {`{{${data.outputVar}}}`} 引用</div>
+        )}
       </FormField>
       <FormField label="并行组">
         <input style={inp} value={data.parallelGroup || ''} placeholder="相同组名并行执行"
@@ -192,33 +285,25 @@ function ToolPanel({ node, data, onUpdate }: { node: Node; data: ToolNodeData; o
 // Variable 属性
 // ============================================================
 
-function VarPanel({ node, data, onUpdate }: { node: Node; data: VariableNodeData; onUpdate: Props['onUpdate'] }) {
+function VarPanel({ node, data, onUpdate }: { node: Node; data: VariableNodeData; onUpdate: (id: string, data: Partial<AppNodeData>) => void }) {
   return (
-    <FormField label="系统变量">
-      <select style={sel} value={data.varName || ''}
-        onChange={(e) => {
-          const vn = e.target.value;
-          const sv = SYSTEM_VARS.find((v) => v.name === vn);
-          onUpdate(node.id, { varName: vn, varDesc: sv?.description || '', label: sv?.name || '变量' } as any);
-        }}>
-        <option value="">— 选择变量 —</option>
-        <optgroup label="新版系统变量">
-          {SYSTEM_VARS.map((v) => (
-            <option key={v.name} value={v.name}>{v.name} — {v.description}</option>
-          ))}
-        </optgroup>
-        <optgroup label="旧版兼容变量">
-          {LEGACY_VARS.map((v) => (
-            <option key={v.name} value={v.name}>{v.name} — {v.description}</option>
-          ))}
-        </optgroup>
-      </select>
-      {data.varName && (
-        <div style={{ fontSize: 11, color: '#666', marginTop: 8, fontFamily: 'Consolas, Monaco, monospace' }}>
-          {`下游可用 {{${data.varName}}} 引用`}
+    <>
+      <PurposeField node={node} data={data} onUpdate={onUpdate} />
+      <FormField label="变量名">
+        <input style={inp} value={data.varName || ''} placeholder="如 my_variable, user_name"
+          onChange={(e) => {
+            const vn = e.target.value;
+            onUpdate(node.id, { varName: vn, label: vn || '变量' } as any);
+          }} />
+        <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
+          变量名自由定义，下游节点通过 <code>{`{{${data.varName || '变量名'}}}`}</code> 引用
         </div>
-      )}
-    </FormField>
+      </FormField>
+      <FormField label="说明（可选）">
+        <input style={inp} value={data.varDesc || ''} placeholder="这个变量存什么？"
+          onChange={(e) => onUpdate(node.id, { varDesc: e.target.value } as any)} />
+      </FormField>
+    </>
   );
 }
 
@@ -226,51 +311,17 @@ function VarPanel({ node, data, onUpdate }: { node: Node; data: VariableNodeData
 // Classifier 属性
 // ============================================================
 
-function ClassifierPanel({ node, data, onUpdate }: { node: Node; data: ClassifierNodeData; onUpdate: Props['onUpdate'] }) {
-  const cats = data.categories || [];
-
-  const addCat = () => {
-    const name = prompt('意图标识（英文）:');
-    if (!name) return;
-    const desc = prompt('意图描述（中文）:') || '';
-    const kws = prompt('关键词（逗号分隔）:') || '';
-    const keywords = kws.split(',').map((k: string) => k.trim()).filter(Boolean);
-    onUpdate(node.id, { categories: [...cats, { name, description: desc, keywords }] } as any);
-  };
-
+function BranchPanel({ node, data, onUpdate }: { node: Node; data: BranchNodeData; onUpdate: (id: string, data: Partial<AppNodeData>) => void }) {
   return (
     <>
-      <FormField label="分类 Prompt">
-        <textarea style={txt} value={data.prompt || ''} placeholder="LLM 分类提示词..."
-          onChange={(e) => onUpdate(node.id, { prompt: e.target.value } as any)} />
+      <PurposeField node={node} data={data} onUpdate={onUpdate} />
+      <FormField label="分支依据变量">
+        <input style={inp} value={data.inputVar || ''} placeholder="如 intent, user_query"
+          onChange={(e) => onUpdate(node.id, { inputVar: e.target.value } as any)} />
+        <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
+          根据此变量的值走不同分支，在连线上标注条件（如 emergency / default）
+        </div>
       </FormField>
-      <FormField label="输出变量名">
-        <input style={inp} value={data.outputVar || 'intent'} placeholder="如 intent"
-          onChange={(e) => onUpdate(node.id, { outputVar: e.target.value } as any)} />
-      </FormField>
-      <div style={sect}>
-        <div style={lab}>意图类别 ({cats.length})</div>
-        {cats.map((cat, i) => (
-          <div key={i} style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-            padding: '8px 11px', marginBottom: 4, borderRadius: 6,
-            background: '#f8f9fb', border: '1px solid #e8eaed',
-          }}>
-            <div>
-              <div style={{ fontWeight: 600, color: '#4b6cb7', fontSize: 12 }}>{cat.name}</div>
-              <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{cat.description}</div>
-              {cat.keywords.length > 0 && (
-                <div style={{ fontSize: 9, color: '#aaa', marginTop: 3 }}>{cat.keywords.join(', ')}</div>
-              )}
-            </div>
-            <span onClick={() => onUpdate(node.id, { categories: cats.filter((_, j) => j !== i) } as any)}
-              style={{ cursor: 'pointer', color: '#c62828', fontSize: 16, lineHeight: 1 }}>×</span>
-          </div>
-        ))}
-        <button style={btnBase} onClick={addCat}>
-          <i className="fas fa-plus" style={{ marginRight: 4 }} /> 添加类别
-        </button>
-      </div>
     </>
   );
 }
@@ -292,24 +343,138 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
 // 变量快速插入
 // ============================================================
 
-function VarSuggest({ onSelect }: { onSelect: (varName: string) => void }) {
+function VarSuggest({ onSelect, nodeId, nodes, edges }: {
+  onSelect: (varName: string) => void;
+  nodeId: string;
+  nodes: Node[];
+  edges: Edge[];
+}) {
   const [show, setShow] = useState(false);
-  const allVars = [...SYSTEM_VARS, ...LEGACY_VARS];
+  const upstream = getUpstreamVars(nodeId, nodes, edges);
 
   return (
     <div style={{ marginTop: 6 }}>
       <button style={{ ...btnBase, fontSize: 10, padding: '4px 10px' }} onClick={() => setShow(!show)}>
-        {show ? '收起' : '+ 插入变量'}
+        {show ? '收起' : '+ 插入 {{变量名}}'}
       </button>
       {show && (
-        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-          {allVars.map((v) => (
-            <span key={v.name} style={chipStyle} onClick={() => onSelect(v.name)} title={v.description}>
-              {v.name}
-            </span>
-          ))}
+        <div style={{ marginTop: 6 }}>
+          {/* 手动输入 */}
+          <input style={inp} placeholder="自定义变量名，回车插入"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const v = (e.target as HTMLInputElement).value.trim();
+                if (v) {
+                  onSelect(v);
+                  (e.target as HTMLInputElement).value = '';
+                  setShow(false);
+                }
+              }
+            }} />
+          {/* 上游节点变量列表 */}
+          {upstream.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div style={{ fontSize: 10, color: '#999', marginBottom: 4 }}>上游可用变量：</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                {upstream.map((v) => (
+                  <span key={v.name} style={chipStyle} onClick={() => { onSelect(v.name); setShow(false); }} title={`来自 ${v.label}`}>
+                    {`{{${v.name}}}`}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {upstream.length === 0 && (
+            <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
+              尚无上游变量，可手动输入变量名
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// 节点用途说明（自描述核心字段 — AI 读这个理解节点）
+// ============================================================
+
+function PurposeField({ node, data, onUpdate }: { node: Node; data: AppNodeData; onUpdate: (id: string, data: Partial<AppNodeData>) => void }) {
+  const purpose = (data as any).purpose || '';
+  return (
+    <FormField label="💡 节点用途">
+      <textarea style={txt} value={purpose}
+        placeholder={'这个节点做什么？用一句话说明。\n例如：把用户问题翻译成英文再交给下游'}
+        onChange={(e) => onUpdate(node.id, { purpose: e.target.value } as any)} />
+      <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>导出 JSON 时作为该节点的自描述说明</div>
+    </FormField>
+  );
+}
+
+// ============================================================
+// Note 便签属性
+// ============================================================
+
+const NOTE_COLORS = [
+  { value: 'yellow', label: '黄', bg: '#fff9c4' },
+  { value: 'green', label: '绿', bg: '#c8e6c9' },
+  { value: 'blue', label: '蓝', bg: '#bbdefb' },
+  { value: 'pink', label: '粉', bg: '#f8bbd0' },
+  { value: 'purple', label: '紫', bg: '#e1bee7' },
+];
+
+function NotePanel({ node, data, onUpdate }: { node: Node; data: NoteNodeData; onUpdate: (id: string, data: Partial<AppNodeData>) => void }) {
+  return (
+    <>
+      <FormField label="标题">
+        <input style={inp} value={data.label || ''} placeholder="如：TODO、注意、想法"
+          onChange={(e) => onUpdate(node.id, { label: e.target.value } as any)} />
+      </FormField>
+      <FormField label="内容">
+        <textarea style={{ ...txt, minHeight: 120 }} value={data.content || ''}
+          placeholder="写在这里...（不参与流程逻辑）"
+          onChange={(e) => onUpdate(node.id, { content: e.target.value } as any)} />
+      </FormField>
+      <FormField label="颜色">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {NOTE_COLORS.map((c) => (
+            <span key={c.value}
+              onClick={() => onUpdate(node.id, { color: c.value } as any)}
+              title={c.label}
+              style={{
+                width: 26, height: 26, borderRadius: 6, cursor: 'pointer',
+                background: c.bg,
+                border: data.color === c.value ? '3px solid #4b6cb7' : '2px solid #e0e3e8',
+                display: 'inline-block',
+              }} />
+          ))}
+        </div>
+      </FormField>
+    </>
+  );
+}
+
+// ============================================================
+// 边条件编辑
+// ============================================================
+
+function EdgePanel({ edge, onUpdateEdge }: { edge: Edge; onUpdateEdge: (edgeId: string, updates: Partial<Edge>) => void }) {
+  const label = typeof edge.label === 'string' ? edge.label : '';
+  return (
+    <>
+      <FormField label="条件标签">
+        <input style={inp} value={label || ''}
+          placeholder="如 emergency / default，空=无条件"
+          onChange={(e) => onUpdateEdge(edge.id, { label: e.target.value || undefined } as any)} />
+        <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
+          分支节点根据此条件决定走哪条路径。标记为 <code>default</code> 表示兜底分支。
+        </div>
+      </FormField>
+      <div style={{ ...sect, borderBottom: 'none' }}>
+        <div style={{ fontSize: 10, color: '#999', lineHeight: 1.6 }}>
+          来源: <code>{edge.source}</code> → 目标: <code>{edge.target}</code>
+        </div>
+      </div>
+    </>
   );
 }
