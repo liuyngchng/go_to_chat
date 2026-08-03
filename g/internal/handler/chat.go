@@ -173,7 +173,11 @@ func (h *ChatHandler) chatWithWorkflow(c *gin.Context, req *model.ChatRequest, u
 	flusher.Flush()
 
 	// 执行工作流
-	eventCh := h.engine.ExecuteStream(req.WorkflowID, req.Msg, uid, historyMsgs)
+	//
+	// 【CSM 硬编码模式】直接走 csm.go 写死的客服问答逻辑（分类→路由→检索→回答），
+	// 不再从数据库加载工作流配置。若需恢复动态配置，放开下面这行、注释掉 ExecuteStreamCSM：
+	// eventCh := h.engine.ExecuteStream(req.WorkflowID, req.Msg, uid, historyMsgs)
+	eventCh := h.engine.ExecuteStreamCSM(req.WorkflowID, req.Msg, uid, historyMsgs)
 
 	var fullResponse strings.Builder
 	for evt := range eventCh {

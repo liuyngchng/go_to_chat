@@ -15,6 +15,26 @@ import (
 // 置信度阈值：低于此值视为不匹配，fallthrough 到下一层
 const ConfidenceThreshold = 0.5
 
+// installHint 系统未安装 fasttext 二进制时的安装提示。
+// 训练（supervised / quantize）和预测（predict-prob）都依赖它。
+const installHint = `系统未安装 fasttext 命令行工具，意图分类的 fastText 层将被跳过。
+请安装该工具后重启服务：
+  sudo apt-get install -y fasttext`
+
+// binaryChecked 缓存二进制探测结果（避免每次调用都 exec.LookPath）。
+var binaryChecked bool
+var binaryAvailCache bool
+
+// binaryAvailable 探测 fasttext 可执行文件是否可用，结果缓存。
+func binaryAvailable() bool {
+	if !binaryChecked {
+		_, err := exec.LookPath("fasttext")
+		binaryAvailCache = err == nil
+		binaryChecked = true
+	}
+	return binaryAvailCache
+}
+
 // 预测结果
 type Result struct {
 	Label      model.IntentType
@@ -39,7 +59,23 @@ func New() *Predictor {
 
 // Train 根据类别定义训练 fastText 模型。
 // 如果类别未变更（与上次训练的 hash 相同）则跳过训练。
+// 系统未安装 fasttext 二进制时会返回带安装提示的错误。
 func (p *Predictor) Train(categories []model.IntentCategory, prompt string) error {
+	// 提前探测二进制，未安装时直接给出安装提示，避免走到 exec 才报错
+	if !binaryAvailable() {
+		return fmt.Errorf("fastText 训练模型失败: %s", installHint)
+	}
+
+	// 模型已存在：直接信任现有模型，跳过训练。
+	// 注意：modelHash 是进程内存变量，每次启动都为空，若不判断模型文件
+	// 存在与否，会导致每次启动都重新训练（耗时几十秒、覆盖已有模型）。
+	modelPath := filepath.Join(p.workDir, "model.ftz")
+	if _, err := os.Stat(modelPath); err == nil {
+		p.modelHash = hashCategories(categories, prompt)
+		slog.Info("fastText model exists, skip training", "model", modelPath, "categories", len(categories))
+		return nil
+	}
+
 	hash := hashCategories(categories, prompt)
 	if hash == p.modelHash {
 		return nil // 类别未变，无需重新训练
@@ -61,7 +97,6 @@ func (p *Predictor) Train(categories []model.IntentCategory, prompt string) erro
 	}
 
 	// 训练 + 量化
-	modelPath := filepath.Join(p.workDir, "model.ftz")
 	if err := trainModel(trainPath, modelPath); err != nil {
 		return fmt.Errorf("fastText: 训练模型失败: %w", err)
 	}
@@ -80,6 +115,12 @@ func (p *Predictor) Predict(query string) (Result, bool) {
 		return Result{}, false
 	}
 
+	// 二进制不可用：记录提示并跳过，避免每次预测都报 exec not found
+	if !binaryAvailable() {
+		slog.Warn("fastText predict skipped: fasttext 未安装", "hint", installHint)
+		return Result{}, false
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -90,7 +131,7 @@ func (p *Predictor) Predict(query string) (Result, bool) {
 	cmd.Stdin = strings.NewReader(tokens + "\n")
 	output, err := cmd.Output()
 	if err != nil {
-		slog.Warn("fastText predict failed", "error", err, "query", query[:min(50, len(query))])
+		slog.Warn("fastText predict failed", "error", err, "hint", installHint, "query", query[:min(50, len(query))])
 		return Result{}, false
 	}
 
