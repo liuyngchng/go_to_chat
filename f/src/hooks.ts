@@ -72,8 +72,13 @@ export function useUndoRedo() {
     return true;
   }, []);
 
+  const clear = useCallback(() => {
+    pastRef.current = [];
+    futureRef.current = [];
+  }, []);
+
   const canUndo = pastRef.current.length > 0;
   const canRedo = futureRef.current.length > 0;
 
-  return { pushHistory, undo, redo, canUndo, canRedo };
+  return { pushHistory, undo, redo, clear, canUndo, canRedo };
 }
