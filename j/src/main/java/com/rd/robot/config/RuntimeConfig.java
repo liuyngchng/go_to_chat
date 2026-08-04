@@ -89,6 +89,10 @@ public class RuntimeConfig {
         if (configs.containsKey("kb.chunk_overlap")) {
             cfg.getKb().setChunkOverlap(parseInt(configs.get("kb.chunk_overlap"), 80));
         }
+        // 兜底：overlap 必须严格小于 chunkSize 的一定比例，否则文本切分会死循环
+        if (cfg.getKb().getChunkOverlap() >= cfg.getKb().getChunkSize()) {
+            cfg.getKb().setChunkOverlap(cfg.getKb().getChunkSize() / 3);
+        }
         if (configs.containsKey("kb.top_k")) {
             cfg.getKb().setTopK(parseInt(configs.get("kb.top_k"), 3));
         }

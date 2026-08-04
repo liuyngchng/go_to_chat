@@ -3,6 +3,7 @@ package com.rd.robot.web.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rd.robot.client.ClientFactory;
 import com.rd.robot.client.LlmClient;
+import com.rd.robot.engine.CsmEngine;
 import com.rd.robot.engine.IntentClassifier;
 import com.rd.robot.engine.TemplateResolver;
 import com.rd.robot.engine.WorkflowEngine;
@@ -40,6 +41,7 @@ public class ChatController {
     private final ClientFactory clientFactory;
     private final MetaStore metaStore;
     private final WorkflowEngine workflowEngine;
+    private final CsmEngine csmEngine;
     private final FaqController faqController;
 
     public ChatController(Config cfg, KnowledgeBaseManager kbMgr, SessionManager sessionMgr,
@@ -51,6 +53,7 @@ public class ChatController {
         this.clientFactory = clientFactory;
         this.faqController = faqController;
         this.workflowEngine = new WorkflowEngine(cfg, kbMgr, metaStore, clientFactory);
+        this.csmEngine = new CsmEngine(cfg, kbMgr, clientFactory);
     }
 
     private LlmClient getLlmClient() {
@@ -195,7 +198,11 @@ public class ChatController {
                 Unpooled.copiedBuffer("data: \n\n", CharsetUtil.UTF_8)));
 
         StringBuilder fullResponse = new StringBuilder();
-        var eventQueue = workflowEngine.executeStream(req.getWorkflowId(), req.getMsg(), uid, historyMsgs);
+
+        // 【CSM 硬编码模式】直接走 CsmEngine 写死的客服问答逻辑（分类→路由→检索→回答），
+        // 不再从数据库加载工作流配置。若需恢复动态配置，放开下面这行、注释掉 executeStreamCSM：
+        // var eventQueue = workflowEngine.executeStream(req.getWorkflowId(), req.getMsg(), uid, historyMsgs);
+        var eventQueue = csmEngine.executeStreamCSM(req.getWorkflowId(), req.getMsg(), uid, historyMsgs);
 
         // Process events in a background thread
         new Thread(() -> {

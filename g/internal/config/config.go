@@ -121,6 +121,10 @@ func applyConfig(configs map[string]string, cfg *model.Config) {
 	if v, ok := configs["kb.chunk_overlap"]; ok && v != "" {
 		cfg.KB.ChunkOverlap, _ = strconv.Atoi(v)
 	}
+	// 兜底：overlap 必须严格小于 chunkSize 的一定比例，否则文本切分会死循环
+	if cfg.KB.ChunkOverlap >= cfg.KB.ChunkSize {
+		cfg.KB.ChunkOverlap = cfg.KB.ChunkSize / 3
+	}
 	if v, ok := configs["kb.top_k"]; ok && v != "" {
 		cfg.KB.TopK, _ = strconv.Atoi(v)
 	}

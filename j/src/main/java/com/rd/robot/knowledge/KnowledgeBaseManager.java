@@ -391,6 +391,10 @@ public class KnowledgeBaseManager {
 
     static List<String> splitText(String text, int chunkSize, int chunkOverlap) {
         if (chunkSize <= 0) chunkSize = 300;
+        // 防止 chunkOverlap >= chunkSize 导致切分步长 <= 0 死循环
+        if (chunkOverlap >= chunkSize) chunkOverlap = chunkSize / 3;
+        // 同理防止步长为负
+        if (chunkOverlap < 0) chunkOverlap = 0;
 
         String[] paragraphs = text.split("\n");
         List<String> chunks = new ArrayList<>();

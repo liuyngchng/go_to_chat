@@ -35,8 +35,9 @@ import (
 //   csm_llm_error        LLM 请求失败
 //   csm_run_done         整条流程结束（总耗时）
 
-// csmTotal 硬编码流程的总步骤数（0=意图分类, 1=检索, 2=回答）
-const csmTotal = 3
+// csmTotalStep 硬编码流程的总步骤数（0=意图分类, 1=检索, 2=回答）
+// 供前端进度展示（EngineEvent.Total）使用
+const csmTotalStep = 3
 
 // csmClassifier 硬编码的意图分类器配置。
 // 与 cfg.db workflow 1 的 classifier 完全一致。
@@ -128,7 +129,7 @@ func (e *Engine) csmRun(eventCh chan<- EngineEvent, userQuery, uid string, histo
 		intent = model.IntentFaq
 	}
 	slog.Info("csm_classify_done", "intent", string(intent), "duration_ms", time.Since(classifyStart).Milliseconds(), "query", truncateStr(userQuery, 80))
-	eventCh <- EngineEvent{Type: "progress", Step: 0, Total: csmTotal, Agent: "意图分类: " + string(intent)}
+	eventCh <- EngineEvent{Type: "progress", Step: 0, Total: csmTotalStep, Agent: "意图分类: " + string(intent)}
 
 	// 2. 按意图路由
 	branch := csmBranchName(intent)
@@ -148,7 +149,7 @@ func (e *Engine) csmRun(eventCh chan<- EngineEvent, userQuery, uid string, histo
 	}
 
 	// 3. 完成
-	eventCh <- EngineEvent{Type: "done", Total: csmTotal}
+	eventCh <- EngineEvent{Type: "done", Total: csmTotalStep}
 	slog.Info("csm_run_done", "intent", string(intent), "total_ms", time.Since(runStart).Milliseconds())
 }
 
@@ -170,21 +171,21 @@ func csmBranchName(intent model.IntentType) string {
 
 // csmAnswerDirect 直接回答（不检索知识库），用于紧急调度 / 业务办理。
 func (e *Engine) csmAnswerDirect(eventCh chan<- EngineEvent, agentName, systemPrompt, userQuery string) {
-	eventCh <- EngineEvent{Type: "progress", Step: 2, Total: csmTotal, Agent: agentName}
+	eventCh <- EngineEvent{Type: "progress", Step: 2, Total: csmTotalStep, Agent: agentName}
 	e.csmStream(eventCh, agentName, systemPrompt, userQuery)
 }
 
 // csmAnswerWithKB 先检索知识库，再基于检索结果回答，用于账单 / 维修 / FAQ。
 // 检索步骤与回答步骤分别发送 progress，与动态工作流的节点展示一致。
 func (e *Engine) csmAnswerWithKB(eventCh chan<- EngineEvent, retrieveAgent, answerAgent, systemPrompt, userQuery, uid string) {
-	eventCh <- EngineEvent{Type: "progress", Step: 1, Total: csmTotal, Agent: retrieveAgent}
+	eventCh <- EngineEvent{Type: "progress", Step: 1, Total: csmTotalStep, Agent: retrieveAgent}
 
 	kbContext := e.csmSearchKB(userQuery, uid)
 
 	// 与 workflow 节点 InputTemplate "用户问题：{{user_query}}\n检索信息：{{xx_ctx}}" 保持一致
 	userMessage := "用户问题：" + userQuery + "\n检索信息：" + kbContext
 
-	eventCh <- EngineEvent{Type: "progress", Step: 2, Total: csmTotal, Agent: answerAgent}
+	eventCh <- EngineEvent{Type: "progress", Step: 2, Total: csmTotalStep, Agent: answerAgent}
 	e.csmStream(eventCh, answerAgent, systemPrompt, userMessage)
 }
 
@@ -225,7 +226,7 @@ func (e *Engine) csmStream(eventCh chan<- EngineEvent, agentName, systemPrompt, 
 	for chunk := range chunkCh {
 		output.WriteString(chunk)
 		chunkCount++
-		eventCh <- EngineEvent{Type: "chunk", Content: chunk, Step: 2, Total: csmTotal, Agent: agentName}
+		eventCh <- EngineEvent{Type: "chunk", Content: chunk, Step: 2, Total: csmTotalStep, Agent: agentName}
 	}
 
 	// 检查错误（errCh 为缓冲通道，range 结束后读它不会阻塞）

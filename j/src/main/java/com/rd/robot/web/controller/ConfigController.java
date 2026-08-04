@@ -27,6 +27,9 @@ public class ConfigController {
     private static final Logger log = LoggerFactory.getLogger(ConfigController.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /** overlap 允许占 chunkSize 的最大比例（百分比），避免文本切分死循环 */
+    private static final int MAX_CHUNK_OVERLAP_RATIO = 30;
+
     private final Config cfg;
     private final MetaStore metaStore;
     private final ClientFactory clientFactory;
@@ -137,7 +140,28 @@ public class ConfigController {
 
             if (kb != null) {
                 setConfigIfPresentInt(kb, "chunk_size", "kb.chunk_size");
-                setConfigIfPresentInt(kb, "chunk_overlap", "kb.chunk_overlap");
+                // 校验 overlap：必须严格小于 chunkSize 的一定比例，否则文本切分步长为 0 会死循环
+                Object overlapVal = kb.get("chunk_overlap");
+                if (overlapVal != null) {
+                    int chunkSize = cfg.getKb().getChunkSize();
+                    Object sizeVal = kb.get("chunk_size");
+                    if (sizeVal instanceof Number) {
+                        chunkSize = ((Number) sizeVal).intValue();
+                    }
+                    int overlap = Integer.parseInt(String.valueOf(overlapVal));
+                    int maxOverlap = chunkSize * MAX_CHUNK_OVERLAP_RATIO / 100;
+                    if (overlap >= chunkSize) {
+                        HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST,
+                                "分片重叠必须小于分片大小（当前 " + overlap + " ≥ " + chunkSize + "）");
+                        return;
+                    }
+                    if (overlap > maxOverlap) {
+                        HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST,
+                                "分片重叠过大，最多为分片大小的 " + MAX_CHUNK_OVERLAP_RATIO + "%（" + maxOverlap + "），当前 " + overlap);
+                        return;
+                    }
+                    metaStore.setConfig("kb.chunk_overlap", String.valueOf(overlap), "");
+                }
                 setConfigIfPresentInt(kb, "top_k", "kb.top_k");
                 setConfigIfPresentDouble(kb, "score_threshold", "kb.score_threshold");
                 setConfigIfPresentBool(kb, "rerank_enabled", "kb.rerank_enabled");

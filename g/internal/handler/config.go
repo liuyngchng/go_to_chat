@@ -22,6 +22,11 @@ type ConfigHandler struct {
 	store store.MetaStore
 }
 
+// MaxChunkOverlapRatio overlap 允许占 chunkSize 的最大比例（百分比）
+// overlap 必须严格小于 chunkSize，否则 splitText 切分步长为 0 会死循环。
+// 这里进一步限制为 chunkSize 的一定比例，避免过度重叠浪费 embedding 计算。
+const MaxChunkOverlapRatio = 30
+
 // NewConfigHandler 创建配置处理器
 func NewConfigHandler(cfg *model.Config, metaStore store.MetaStore) *ConfigHandler {
 	return &ConfigHandler{
@@ -184,6 +189,20 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 		}
 	}
 	if req.KB.ChunkOverlap > 0 {
+		// 校验 overlap 必须严格小于 chunkSize 的一定比例，否则文本切分可能死循环
+		chunkSize := h.cfg.KB.ChunkSize
+		if req.KB.ChunkSize > 0 {
+			chunkSize = req.KB.ChunkSize
+		}
+		maxOverlap := chunkSize * MaxChunkOverlapRatio / 100
+		if req.KB.ChunkOverlap >= chunkSize {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("分片重叠必须小于分片大小（当前 %d ≥ %d）", req.KB.ChunkOverlap, chunkSize)})
+			return
+		}
+		if req.KB.ChunkOverlap > maxOverlap {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("分片重叠过大，最多为分片大小的 %d%%（%d），当前 %d", MaxChunkOverlapRatio, maxOverlap, req.KB.ChunkOverlap)})
+			return
+		}
 		if err := h.store.SetConfig("kb.chunk_overlap", fmt.Sprintf("%d", req.KB.ChunkOverlap), "分片重叠大小"); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存分片重叠失败: " + err.Error()})
 			return
