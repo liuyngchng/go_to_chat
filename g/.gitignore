@@ -11,7 +11,3 @@ kb-chat-flow-release-*.tar.gz
 
 # 日志目录
 log/
-
-# fastText 模型文件（运行时自动生成/重训）
-dt/ft/model.ftz
-dt/ft/train.txt

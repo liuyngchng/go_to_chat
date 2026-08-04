@@ -1,10 +1,13 @@
 #!/bin/bash
 # ============================================================
-# start.sh — 启动 kb-chat-flow Docker 容器（给运维用）
+# deploy.sh — 启动 kb-chat-flow Docker 容器（给运维用）
 #
 # 用法:
-#   ./start.sh                  # 默认 tag: latest
-#   ./start.sh v1.0.0           # 指定版本
+#   ./deploy.sh                  # 默认 tag: latest
+#   ./deploy.sh v1.0.0           # 指定版本
+#
+# 说明:
+#   - 必须解压到 kb-chat-flow/ 目录下再运行（与镜像内路径/挂载对应）
 # ============================================================
 
 set -euo pipefail
@@ -64,7 +67,7 @@ if $CONFIG_COPIED; then
 fi
 
 # ---- 创建数据目录 ----
-mkdir -p log upload_doc vdb
+mkdir -p log upload_doc vdb dt
 
 # ---- 停旧容器 ----
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
@@ -93,6 +96,7 @@ docker run -d \
     -v "${SCRIPT_DIR}/log:/opt/csm/log" \
     -v "${SCRIPT_DIR}/upload_doc:/opt/csm/upload_doc" \
     -v "${SCRIPT_DIR}/vdb:/opt/csm/vdb" \
+    -v "${SCRIPT_DIR}/dt:/opt/csm/dt" \
     "${FULL_IMAGE}"
 
 # ---- 检查启动状态 ----

@@ -69,10 +69,20 @@ if ! command -v docker &>/dev/null; then
 fi
 
 # ---- Step 1: 本地编译 ----
-info "本地编译 Go 二进制 (CGO_ENABLED=0)..."
 cd "$SCRIPT_DIR"
+
+# 删除旧二进制，防止手动 go build（非 CGO_ENABLED=0）残留的产物混入
+rm -f "$BINARY"
+
+info "本地编译 Go 二进制 (CGO_ENABLED=0)..."
 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BINARY" .
-info "编译完成: $SCRIPT_DIR/$BINARY"
+
+# 自检：确认产物是静态链接
+if ! file "$BINARY" | grep -q "statically linked"; then
+    err "编译产物不是静态链接！请检查 CGO_ENABLED 设置"
+    exit 1
+fi
+info "编译完成: $SCRIPT_DIR/$BINARY（静态链接）"
 
 # ---- Step 2: 准备 Docker 构建上下文 ----
 BUILD_DIR="$(mktemp -d -t kb-chat-flow_build_XXXXXX)"
@@ -82,6 +92,7 @@ info "准备构建上下文: $BUILD_DIR"
 cp "$SCRIPT_DIR/$BINARY" "$BUILD_DIR/"
 cp "$SCRIPT_DIR/Dockerfile" "$BUILD_DIR/"
 cp "$SCRIPT_DIR/cfg.yml.template" "$BUILD_DIR/cfg.yml.template"
+cp -r "$SCRIPT_DIR/dt" "$BUILD_DIR/dt"
 
 # ---- Step 3: 打 Docker 镜像 ----
 info "构建镜像: $FULL_IMAGE"
@@ -100,7 +111,8 @@ if $PUSH; then
 fi
 
 # ---- Step 5: 打包 release ----
-RELEASE_DIR="$SCRIPT_DIR/kb-chat-flow-release/${TAG}"
+# 解压后目录名固定为 kb-chat-flow（不随 tag 变化）
+RELEASE_DIR="$SCRIPT_DIR/kb-chat-flow-release/kb-chat-flow"
 RELEASE_TAR="$SCRIPT_DIR/kb-chat-flow-release-${TAG}.tar.gz"
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR"
@@ -123,12 +135,19 @@ if [[ -f "$SCRIPT_DIR/cfg.db" ]]; then
     cp "$SCRIPT_DIR/cfg.db" "$RELEASE_DIR/cfg.db"
 fi
 
+# fastText 训练好的模型（运行时直接加载，不重训）
+if [[ -d "$SCRIPT_DIR/dt" ]]; then
+    cp -r "$SCRIPT_DIR/dt" "$RELEASE_DIR/dt"
+else
+    warn "  dt 目录不存在，fastText 模型未打包（首次启动会重新训练）"
+fi
+
 # 启动脚本
 cp "$SCRIPT_DIR/deploy.sh" "$RELEASE_DIR/deploy.sh"
 
-# 打包 tar.gz
+# 打包 tar.gz（顶层目录名固定为 kb-chat-flow）
 cd "$SCRIPT_DIR/kb-chat-flow-release"
-tar czf "$RELEASE_TAR" "$TAG"
+tar czf "$RELEASE_TAR" "kb-chat-flow"
 cd "$SCRIPT_DIR"
 rm -rf "$RELEASE_DIR"
 
@@ -144,6 +163,6 @@ info "交付步骤:"
 echo "  1. 将 $(basename "$RELEASE_TAR") 拷贝给运维"
 echo "  2. 运维执行:"
 echo "     tar xzf $(basename "$RELEASE_TAR")"
-echo "     cd ${TAG}"
+echo "     cd kb-chat-flow"
 echo "     docker load < ${IMAGE_NAME}.tar"
 echo "     ./deploy.sh"
