@@ -2,8 +2,9 @@ package vdb
 
 import "kb-chat-flow/internal/model"
 
-// VectorsDB 本地向量数据库文件路径
-const VectorsDB = "./vdb/vectors.db"
+// VectorsDB 本地向量数据库目录。
+// 每个知识库一个独立 sqlite 文件：<VectorsDB>/kb_<vdbID>.db（与 qdrant/milvus 的 kb_<vdbID> collection 对齐）
+const VectorsDB = "./vdb"
 
 // VectorStore 向量存储接口
 type VectorStore interface {

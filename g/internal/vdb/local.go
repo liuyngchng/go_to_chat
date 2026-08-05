@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 
@@ -15,16 +17,23 @@ import (
 
 // LocalStore 本地 SQLite 向量存储（内存缓存 + 持久化）
 type LocalStore struct {
-	db  *sql.DB
-	mu  sync.RWMutex // 保护 dim, docs
-	dim int
+	db     *sql.DB
+	dbPath string // 独立 sqlite 文件路径（kb_<vdbID>.db）
+	mu     sync.RWMutex
+	dim    int
 
 	vdbID int64
 	docs  []vectorDoc // 内存缓存，启动时从 DB 加载，写入时同步更新
 }
 
-// NewLocalStore 创建本地向量存储
-func NewLocalStore(dbPath string, vdbID int64) (*LocalStore, error) {
+// NewLocalStore 创建本地向量存储。
+// 每个知识库一个独立 sqlite 文件：<dbDir>/kb_<vdbID>.db（物理隔离，对齐 qdrant/milvus 的 kb_<vdbID> collection）
+func NewLocalStore(dbDir string, vdbID int64) (*LocalStore, error) {
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建向量目录失败: %w", err)
+	}
+	dbPath := filepath.Join(dbDir, fmt.Sprintf("kb_%d.db", vdbID))
+
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("打开向量数据库失败: %w", err)
@@ -40,7 +49,7 @@ func NewLocalStore(dbPath string, vdbID int64) (*LocalStore, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(2)
 
-	store := &LocalStore{db: db, vdbID: vdbID}
+	store := &LocalStore{db: db, dbPath: dbPath, vdbID: vdbID}
 	if err := store.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("向量表初始化失败: %w", err)
@@ -266,21 +275,30 @@ func (s *LocalStore) DeleteBySource(source string) error {
 	return nil
 }
 
-// Purge 清空当前知识库的所有向量（DB + 内存）
+// Purge 清空当前知识库的所有向量（物理隔离下 = 关闭并删除独立 db 文件）
 func (s *LocalStore) Purge() error {
-	if _, err := s.db.Exec("DELETE FROM vectors WHERE vdb_id = ?", s.vdbID); err != nil {
-		return err
-	}
-
+	// 关闭连接，释放文件句柄
 	s.mu.Lock()
 	s.docs = nil
 	s.mu.Unlock()
 
+	if err := s.db.Close(); err != nil {
+		return err
+	}
+	s.db = nil
+
+	// 删除独立的 db 文件
+	if err := os.Remove(s.dbPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 
 // Close 关闭数据库
 func (s *LocalStore) Close() error {
+	if s.db == nil {
+		return nil // Purge 已关闭并删除文件
+	}
 	return s.db.Close()
 }
 

@@ -22,7 +22,6 @@ import (
 
 const (
 	VdbDir           = "./vdb"
-	VectorsDB        = "./vdb/vectors.db"
 	UploadDir        = "./upload_doc"
 	FilePollInterval = 5 * time.Second
 )

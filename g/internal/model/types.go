@@ -81,9 +81,15 @@ type APIConfig struct {
 }
 
 // MilvusConfig Milvus 配置
+// 认证二选一：
+//   - token:            API Key 认证（云服务商提供的 token）
+//   - username/password: 用户名/密码认证（自建 Milvus 默认 root + 密码）
+// 两者都留空则走免认证连接。
 type MilvusConfig struct {
-	URI   string `yaml:"uri"`
-	Token string `yaml:"token"`
+	URI      string `yaml:"uri"`
+	Token    string `yaml:"token"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 // QdrantConfig Qdrant 向量数据库配置

@@ -44,8 +44,15 @@ milvus:
   # Milvus 服务地址（留空则回退为本地存储）
   # 示例: "http://localhost:19530"
   uri: ""
-  # Milvus 认证 token（可选）
+  # Milvus 认证方式二选一：
+  #   方式一（API Key）：云服务商提供的 token
+  #   方式二（用户名/密码）：自建 Milvus 默认 root + 密码
+  # 两种认证都留空 = 免认证连接
+  # API Key
   token: ""
+  # 用户名/密码
+  username: ""
+  password: ""
 
 # Qdrant 向量数据库配置（仅 vector.backend 设为 "qdrant" 时需要）
 qdrant:

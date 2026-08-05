@@ -12,9 +12,10 @@ import (
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"
 )
 
+// 与 Qdrant 保持一致：每个知识库一个 collection，命名 kb_<vdbID>
 const (
-	defaultCollectionName = "knowledge_base"
-	defaultShardsNum      = 1
+	kbCollectionPrefix = "kb_"
+	defaultShardsNum   = 1
 )
 
 // MilvusStore 远程 Milvus 向量存储
@@ -22,15 +23,20 @@ type MilvusStore struct {
 	cli            client.Client
 	ctx            context.Context
 	collectionName string
+	vdbID          int64
 }
 
 // NewMilvusStore 创建 Milvus 远程连接
-func NewMilvusStore(uri, token string) (*MilvusStore, error) {
+// 认证方式：token（API Key）与 username/password 二选一，两者都留空则免认证。
+func NewMilvusStore(uri, token, username, password string, vdbID int64) (*MilvusStore, error) {
 	ctx := context.Background()
 
 	cfg := client.Config{Address: uri}
 	if token != "" {
 		cfg.APIKey = token
+	} else if username != "" && password != "" {
+		cfg.Username = username
+		cfg.Password = password
 	}
 
 	cli, err := client.NewClient(ctx, cfg)
@@ -38,10 +44,13 @@ func NewMilvusStore(uri, token string) (*MilvusStore, error) {
 		return nil, fmt.Errorf("连接 Milvus 失败: %w", err)
 	}
 
+	collectionName := fmt.Sprintf("%s%d", kbCollectionPrefix, vdbID)
+
 	return &MilvusStore{
 		cli:            cli,
 		ctx:            ctx,
-		collectionName: defaultCollectionName,
+		collectionName: collectionName,
+		vdbID:          vdbID,
 	}, nil
 }
 
@@ -240,8 +249,8 @@ func New(cfg *model.Config, vdbID int64) (VectorStore, error) {
 		if cfg.Milvus.URI == "" {
 			return nil, fmt.Errorf("Milvus URI 未配置")
 		}
-		slog.Info("使用远程 Milvus", "uri", cfg.Milvus.URI)
-		return NewMilvusStore(cfg.Milvus.URI, cfg.Milvus.Token)
+		slog.Info("使用远程 Milvus", "uri", cfg.Milvus.URI, "vdbID", vdbID)
+		return NewMilvusStore(cfg.Milvus.URI, cfg.Milvus.Token, cfg.Milvus.Username, cfg.Milvus.Password, vdbID)
 
 	case "qdrant":
 		if cfg.Qdrant.Host == "" {
