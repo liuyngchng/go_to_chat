@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -14,6 +15,10 @@ import (
 
 // 置信度阈值：低于此值视为不匹配，fallthrough 到下一层
 const ConfidenceThreshold = 0.5
+
+// PredictTopK fastText predict-prob 返回的候选数。
+// 多意图识别场景下取 5 个候选，由上层按优先级路由。
+const PredictTopK = 5
 
 // installHint 系统未安装 fasttext 二进制时的安装提示。
 // 训练（supervised / quantize）和预测（predict-prob）都依赖它。
@@ -106,19 +111,18 @@ func (p *Predictor) Train(categories []model.IntentCategory, prompt string) erro
 	return nil
 }
 
-// Predict 预测用户 query 的意图类别。
-// 返回最佳匹配及置信度。模型未训练时返回空。
-// 如果预测结果是 "none"（无关输入），视为不匹配。
-func (p *Predictor) Predict(query string) (Result, bool) {
+// Predict 预测用户 query 的意图类别，返回多个候选（按置信度降序）。
+// 模型未训练时返回空切片。已过滤 none 标签和低于阈值的候选。
+func (p *Predictor) Predict(query string) []Result {
 	modelPath := filepath.Join(p.workDir, "model.ftz")
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		return Result{}, false
+		return nil
 	}
 
 	// 二进制不可用：记录提示并跳过，避免每次预测都报 exec not found
 	if !binaryAvailable() {
 		slog.Warn("fastText predict skipped: fasttext 未安装", "hint", installHint)
-		return Result{}, false
+		return nil
 	}
 
 	p.mu.Lock()
@@ -126,26 +130,22 @@ func (p *Predictor) Predict(query string) (Result, bool) {
 
 	tokens := tokenize(query)
 
-	// 调用 fasttext predict-prob
-	cmd := exec.Command("fasttext", "predict-prob", modelPath, "-", "1")
+	// 调用 fasttext predict-prob，拿 TopK 个候选
+	cmd := exec.Command("fasttext", "predict-prob", modelPath, "-", strconv.Itoa(PredictTopK))
 	cmd.Stdin = strings.NewReader(tokens + "\n")
 	output, err := cmd.Output()
 	if err != nil {
 		slog.Warn("fastText predict failed", "error", err, "hint", installHint, "query", query[:min(50, len(query))])
-		return Result{}, false
+		return nil
 	}
 
-	// 解析输出: "__label__xxx 0.999"
-	result := parsePredictOutput(string(output))
-	if result.Label == "" || result.Label == "none" {
-		// "none" 类别表示无关输入，不匹配任何意图
-		if result.Label == "none" {
-			slog.Info("fastText classified as none (unrelated)", "confidence", result.Confidence, "query", query[:min(50, len(query))])
-		}
-		return Result{}, false
+	// 解析输出: "__label__xxx 0.999 __label__yyy 0.888"
+	results := parsePredictOutputs(string(output))
+	if len(results) == 0 {
+		slog.Info("fastText all below threshold or none", "query", query[:min(50, len(query))])
 	}
 
-	return result, true
+	return results
 }
 
 // IsTrained 判断模型是否已训练
@@ -250,33 +250,40 @@ func trainModel(trainPath, modelPath string) error {
 	return nil
 }
 
-// parsePredictOutput 解析 fasttext predict-prob 输出
-// 格式: "__label__xxx 0.999876"
-func parsePredictOutput(output string) Result {
+// parsePredictOutputs 解析 fasttext predict-prob (k>1) 输出。
+// 格式: "__label__xxx 0.999 __label__yyy 0.888"
+// 过滤 none 标签和低于阈值的候�选，按置信度降序返回。
+func parsePredictOutputs(output string) []Result {
 	output = strings.TrimSpace(output)
 	if output == "" {
-		return Result{}
+		return nil
 	}
 
 	parts := strings.Fields(output)
-	if len(parts) < 2 {
-		return Result{}
+	// 需要偶数个：label confidence label confidence ...
+	if len(parts) < 2 || len(parts)%2 != 0 {
+		return nil
 	}
 
-	// 去掉 __label__ 前缀
-	label := strings.TrimPrefix(parts[0], "__label__")
-	if label == parts[0] {
-		// 没有 __label__ 前缀，不是有效输出
-		return Result{}
+	var results []Result
+	for i := 0; i < len(parts); i += 2 {
+		label := strings.TrimPrefix(parts[i], "__label__")
+		if label == parts[i] || label == "none" {
+			continue // 去掉无前缀的和 none 标签
+		}
+
+		var confidence float64
+		fmt.Sscanf(parts[i+1], "%f", &confidence)
+
+		if confidence >= ConfidenceThreshold {
+			results = append(results, Result{
+				Label:      model.IntentType(label),
+				Confidence: confidence,
+			})
+		}
 	}
 
-	var confidence float64
-	fmt.Sscanf(parts[1], "%f", &confidence)
-
-	return Result{
-		Label:      model.IntentType(label),
-		Confidence: confidence,
-	}
+	return results
 }
 
 // hashCategories 基于类别配置生成 hash，用于检测变更

@@ -125,34 +125,191 @@ func (e *Engine) csmRun(eventCh chan<- EngineEvent, userQuery, uid string, histo
 		slog.Warn("fastText train failed, will skip fastText tier", "error", err)
 	}
 	classifyStart := time.Now()
-	intent := classify(csmClassifier, userQuery, e.baseLLM, e.embClient, e.ftPredictor)
-	if intent == "" {
+	classified := classify(csmClassifier, userQuery, e.baseLLM, e.embClient, e.ftPredictor)
+	if len(classified) == 0 {
 		// 理论上 classify 至少会 fallback 到最后一个类别；此处兜底防御
-		intent = model.IntentFaq
+		classified = []model.ClassifiedIntent{{Intent: model.IntentFaq, Confidence: confFallback, Source: model.SourceFallback}}
 	}
-	slog.Info("csm_classify_done", "intent", string(intent), "duration_ms", time.Since(classifyStart).Milliseconds(), "query", truncateStr(userQuery, 80))
-	eventCh <- EngineEvent{Type: "progress", Step: 0, Total: csmTotalStep, Agent: "意图分类: " + string(intent)}
 
-	// 2. 按意图路由
-	branch := csmBranchName(intent)
-	slog.Info("csm_route", "intent", string(intent), "branch", branch)
+	// ---- RULE 1: emergency 在任何位置都最高优先级（安全第一） ----
+	primary := classified[0]
+	if ci, ok := findIntent(classified, model.IntentEmergency); ok {
+		primary = ci
+	}
 
-	switch intent {
+	// ---- RULE 2: 歧义检测（top-2 置信度差距 < 0.20，且不是双 keyword 多意图） ----
+	if primary.Intent != model.IntentEmergency && len(classified) >= 2 &&
+		classified[0].Confidence-classified[1].Confidence < ambiguityGap &&
+		!(classified[0].Source == model.SourceKeyword && classified[1].Source == model.SourceKeyword) {
+
+		slog.Info("csm_classify_done", "intents", classified, "ambiguous", true, "duration_ms", time.Since(classifyStart).Milliseconds(), "query", truncateStr(userQuery, 80))
+		eventCh <- EngineEvent{Type: "progress", Step: 0, Total: csmTotalStep, Agent: "意图确认"}
+		eventCh <- EngineEvent{Type: "chunk", Content: csmClarifyText(classified[:2]), Step: 2, Total: csmTotalStep}
+		eventCh <- EngineEvent{Type: "done", Total: csmTotalStep}
+		slog.Info("csm_run_done", "intent", "ambiguous", "total_ms", time.Since(runStart).Milliseconds())
+		return
+	}
+
+	slog.Info("csm_classify_done", "intents", classified, "primary", string(primary.Intent),
+		"primary_conf", primary.Confidence, "source", primary.Source, "duration_ms", time.Since(classifyStart).Milliseconds(), "query", truncateStr(userQuery, 80))
+	eventCh <- EngineEvent{Type: "progress", Step: 0, Total: csmTotalStep, Agent: "意图分类: " + string(primary.Intent)}
+
+	branch := csmBranchName(primary.Intent)
+	slog.Info("csm_route", "intent", string(primary.Intent), "branch", branch, "candidates", classified)
+
+	// ---- RULE 3: 正常路由（低置信度时软化提示） ----
+	prompt := csmBranchPrompt(primary.Intent)
+	if primary.Source == model.SourceFallback {
+		prompt += csmLowConfidenceHint
+	}
+
+	switch primary.Intent {
 	case model.IntentEmergency:
-		e.csmAnswerDirect(eventCh, "紧急调度", csmEmergencyPrompt, userQuery)
+		e.csmAnswerDirect(eventCh, "紧急调度", prompt, userQuery)
 	case model.IntentBilling:
-		e.csmAnswerWithKB(eventCh, "账单检索", "账单客服", csmBillingPrompt, userQuery, uid, e.billingVdbIDsSnapshot())
+		e.csmAnswerWithKB(eventCh, "账单检索", "账单客服", prompt, userQuery, uid, e.billingVdbIDsSnapshot())
 	case model.IntentBusiness:
-		e.csmAnswerDirect(eventCh, "业务办理", csmBusinessPrompt, userQuery)
+		e.csmAnswerDirect(eventCh, "业务办理", prompt, userQuery)
 	case model.IntentRepair:
-		e.csmAnswerWithKB(eventCh, "维修检索", "维修客服", csmRepairPrompt, userQuery, uid, e.repairVdbIDsSnapshot())
+		e.csmAnswerWithKB(eventCh, "维修检索", "维修客服", prompt, userQuery, uid, e.repairVdbIDsSnapshot())
 	default: // faq / 未识别
-		e.csmAnswerWithKB(eventCh, "FAQ检索", "综合FAQ", csmFaqPrompt, userQuery, uid, e.faqVdbIDsSnapshot())
+		e.csmAnswerWithKB(eventCh, "FAQ检索", "综合FAQ", prompt, userQuery, uid, e.faqVdbIDsSnapshot())
+	}
+
+	// ---- RULE 4: 次意图处理（primary 非 emergency 时） ----
+	if primary.Intent != model.IntentEmergency {
+		if secondary := selectSecondary(classified, primary); secondary != nil {
+			if agentName, secPrompt, vdbIDs, ok := e.csmSecondaryBranch(secondary.Intent); ok {
+				eventCh <- EngineEvent{Type: "chunk", Content: "\n\n—— 另外，关于您提到的" + csmIntentLabel(secondary.Intent) + " ——\n\n", Step: 2, Total: csmTotalStep}
+				e.csmAnswerWithKB(eventCh, agentName, "次意图:"+csmIntentLabel(secondary.Intent), secPrompt, userQuery, uid, vdbIDs)
+			} else {
+				eventCh <- EngineEvent{Type: "chunk", Content: csmFollowUpText(secondary.Intent), Step: 2, Total: csmTotalStep}
+			}
+		}
 	}
 
 	// 3. 完成
 	eventCh <- EngineEvent{Type: "done", Total: csmTotalStep}
-	slog.Info("csm_run_done", "intent", string(intent), "total_ms", time.Since(runStart).Milliseconds())
+	slog.Info("csm_run_done", "intent", string(primary.Intent), "total_ms", time.Since(runStart).Milliseconds())
+}
+
+// findIntent 在分类结果中查找指定意图，返回其完整信息（含置信度）。
+func findIntent(classified []model.ClassifiedIntent, target model.IntentType) (model.ClassifiedIntent, bool) {
+	for _, ci := range classified {
+		if ci.Intent == target {
+			return ci, true
+		}
+	}
+	return model.ClassifiedIntent{}, false
+}
+
+// selectSecondary 返回置信度达标（≥0.40）的第一个非主意图；nil 表示无。
+func selectSecondary(classified []model.ClassifiedIntent, primary model.ClassifiedIntent) *model.ClassifiedIntent {
+	for i := range classified {
+		if classified[i].Intent != primary.Intent && classified[i].Confidence >= secondaryMinConf {
+			return &classified[i]
+		}
+	}
+	return nil
+}
+
+// csmFollowUpText 生成次意图追问文本。
+func csmFollowUpText(secondary model.IntentType) string {
+	switch secondary {
+	case model.IntentBilling:
+		return "另外，您还提到了账单相关的问题，需要帮您查询吗？"
+	case model.IntentRepair:
+		return "另外，您还提到了维修相关的问题，需要帮您排查吗？"
+	case model.IntentBusiness:
+		return "另外，您还提到了业务办理相关的问题，需要帮您处理吗？"
+	case model.IntentFaq:
+		return "另外，您还有其他问题需要咨询吗？"
+	default:
+		return "您还有其他问题需要帮助吗？"
+	}
+}
+
+// csmLowConfidenceHint 低置信度时追加到 prompt 末尾的软化提示。
+const csmLowConfidenceHint = "\n\n注意：用户描述可能不够清晰。如以上信息无法解答，请礼貌引导用户换个方式描述或转人工客服。"
+
+// csmClarifyText 歧义反问，生成 markdown 选项列表让用户选择。
+func csmClarifyText(candidates []model.ClassifiedIntent) string {
+	var b strings.Builder
+	b.WriteString("您的问题可能涉及多个方面，我不太确定您具体想了解哪一个：\n\n")
+	for _, ci := range candidates {
+		label := csmIntentLabel(ci.Intent)
+		desc := csmIntentDesc(ci.Intent)
+		b.WriteString("- **" + label + "** — " + desc + "\n")
+	}
+	b.WriteString("\n请问您主要想了解哪一个？直接告诉我就可以，我来帮您详细解答。")
+	return b.String()
+}
+
+// csmIntentLabel 返回意图的中文标签。
+func csmIntentLabel(intent model.IntentType) string {
+	switch intent {
+	case model.IntentEmergency:
+		return "紧急求助"
+	case model.IntentBilling:
+		return "账单查询"
+	case model.IntentBusiness:
+		return "业务办理"
+	case model.IntentRepair:
+		return "维修报修"
+	case model.IntentFaq:
+		return "综合咨询"
+	default:
+		return "其他问题"
+	}
+}
+
+// csmIntentDesc 返回意图的简要描述（用于歧义反问）。
+func csmIntentDesc(intent model.IntentType) string {
+	switch intent {
+	case model.IntentEmergency:
+		return "燃气泄漏、异味、报警等紧急安全情况"
+	case model.IntentBilling:
+		return "账单、缴费、欠费、发票等财务问题"
+	case model.IntentBusiness:
+		return "开户、过户、报装、停气等业务办理"
+	case model.IntentRepair:
+		return "设备故障、打不着火、保养、安检等维修问题"
+	case model.IntentFaq:
+		return "营业时间、电话地址、投诉建议等常见咨询"
+	default:
+		return ""
+	}
+}
+
+// csmBranchPrompt 返回意图对应的系统提示词。
+func csmBranchPrompt(intent model.IntentType) string {
+	switch intent {
+	case model.IntentEmergency:
+		return csmEmergencyPrompt
+	case model.IntentBilling:
+		return csmBillingPrompt
+	case model.IntentBusiness:
+		return csmBusinessPrompt
+	case model.IntentRepair:
+		return csmRepairPrompt
+	default:
+		return csmFaqPrompt
+	}
+}
+
+// csmSecondaryBranch 返回次意图的分支信息（检索 agent 名 / prompt / 知识库 ids）。
+// ok=false 表示该意图没有 KB 分支，仅用文本追问。
+func (e *Engine) csmSecondaryBranch(intent model.IntentType) (agentName, prompt string, vdbIDs []int64, ok bool) {
+	switch intent {
+	case model.IntentBilling:
+		return "账单检索", csmBillingPrompt, e.billingVdbIDsSnapshot(), true
+	case model.IntentRepair:
+		return "维修检索", csmRepairPrompt, e.repairVdbIDsSnapshot(), true
+	case model.IntentFaq:
+		return "FAQ检索", csmFaqPrompt, e.faqVdbIDsSnapshot(), true
+	default:
+		return "", "", nil, false
+	}
 }
 
 // csmBranchName 返回意图对应的路由分支描述（仅用于日志）。

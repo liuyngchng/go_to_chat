@@ -402,6 +402,24 @@ const (
 	IntentFaq       IntentType = "faq"
 )
 
+// ClassifySource 意图分类来源层级
+type ClassifySource string
+
+const (
+	SourceKeyword  ClassifySource = "keyword"
+	SourceFastText ClassifySource = "fasttext"
+	SourceSemantic ClassifySource = "semantic"
+	SourceLLM      ClassifySource = "llm"
+	SourceFallback ClassifySource = "fallback"
+)
+
+// ClassifiedIntent 带置信度的意图分类结果
+type ClassifiedIntent struct {
+	Intent     IntentType     `json:"intent"`
+	Confidence float64        `json:"confidence"` // 0.0~1.0
+	Source     ClassifySource `json:"source"`
+}
+
 // IntentCategory 意图分类中的一个类别
 type IntentCategory struct {
 	Name        IntentType `json:"name"`        // 类别标识，如 "emergency"

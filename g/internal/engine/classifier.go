@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +24,7 @@ type TierResult struct {
 	Skipped bool    `json:"skipped,omitempty"`
 }
 
-// ClassifyWithDetails 意图分类（调试用），返回各层详细结果。
+// ClassifyWithDetails 意图分类（调试用），返回各层详细结果和最终意图。
 func ClassifyWithDetails(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client, embClient *embedding.Client, ftPredictor *fasttext.Predictor) ([]TierResult, string) {
 	var tiers []TierResult
 
@@ -33,24 +34,22 @@ func ClassifyWithDetails(cfg *model.ClassifierDef, userQuery string, llmClient *
 
 	// 1. 关键词匹配
 	t0 := time.Now()
-	if name := matchKeyword(userQuery, cfg.Categories); name != "" {
-		tiers = append(tiers, TierResult{Name: "keyword", Matched: true, Result: string(name), Elapsed: time.Since(t0).Milliseconds()})
-		return tiers, string(name)
+	if ci := matchKeyword(userQuery, cfg.Categories); ci.Intent != "" {
+		tiers = append(tiers, TierResult{Name: "keyword", Matched: true, Result: string(ci.Intent), Score: ci.Confidence, Elapsed: time.Since(t0).Milliseconds()})
+		return tiers, string(ci.Intent)
 	}
 	tiers = append(tiers, TierResult{Name: "keyword", Matched: false, Elapsed: time.Since(t0).Milliseconds()})
 
-	// 2. fastText
+	// 2. fastText —— 多意图：取所有候选
 	if ftPredictor != nil {
 		t0 = time.Now()
 		if !ftPredictor.IsTrained() {
 			tiers = append(tiers, TierResult{Name: "fasttext", Skipped: true, Elapsed: time.Since(t0).Milliseconds()})
-		} else if result, ok := ftPredictor.Predict(userQuery); ok {
+		} else if results := ftPredictor.Predict(userQuery); len(results) > 0 {
 			elapsed := time.Since(t0).Milliseconds()
-			if result.Confidence >= fasttext.ConfidenceThreshold {
-				tiers = append(tiers, TierResult{Name: "fasttext", Matched: true, Result: string(result.Label), Score: result.Confidence, Elapsed: elapsed})
-				return tiers, string(result.Label)
-			}
-			tiers = append(tiers, TierResult{Name: "fasttext", Matched: false, Score: result.Confidence, Elapsed: elapsed})
+			top := results[0]
+			tiers = append(tiers, TierResult{Name: "fasttext", Matched: true, Result: string(top.Label), Score: top.Confidence, Elapsed: elapsed})
+			return tiers, string(top.Label)
 		} else {
 			tiers = append(tiers, TierResult{Name: "fasttext", Skipped: true, Elapsed: time.Since(t0).Milliseconds()})
 		}
@@ -59,8 +58,8 @@ func ClassifyWithDetails(cfg *model.ClassifierDef, userQuery string, llmClient *
 	// 3. Embedding 语义匹配
 	if embClient != nil {
 		t0 = time.Now()
-		if name := matchSemantic(cfg, userQuery, embClient); name != "" {
-			tiers = append(tiers, TierResult{Name: "embedding", Matched: true, Result: string(name), Elapsed: time.Since(t0).Milliseconds()})
+		if name, score := matchSemantic(cfg, userQuery, embClient); name != "" {
+			tiers = append(tiers, TierResult{Name: "embedding", Matched: true, Result: string(name), Score: score, Elapsed: time.Since(t0).Milliseconds()})
 			return tiers, string(name)
 		}
 		tiers = append(tiers, TierResult{Name: "embedding", Matched: false, Elapsed: time.Since(t0).Milliseconds()})
@@ -87,41 +86,46 @@ func ClassifyWithDetails(cfg *model.ClassifierDef, userQuery string, llmClient *
 }
 
 // classify 意图分类：关键词 → 本地模型 → 语义匹配 → LLM 兜底。
-// 返回匹配到的 category name，如果全都没命中则返回空串。
-func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client, embClient *embedding.Client, ftPredictor *fasttext.Predictor) model.IntentType {
+// 返回带置信度的意图列表（按置信度降序），全都没命中返回空切片。
+func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client, embClient *embedding.Client, ftPredictor *fasttext.Predictor) []model.ClassifiedIntent {
 	if cfg == nil || len(cfg.Categories) == 0 {
-		return ""
+		return nil
 	}
 
-	// 1. 关键词匹配（最快，0ms）
-	if name := matchKeyword(userQuery, cfg.Categories); name != "" {
-		return name
+	// 1. 关键词匹配（最快，0ms）—— 收集所有命中的类别，按命中数降序
+	if intents := matchKeywords(userQuery, cfg.Categories); len(intents) > 0 {
+		return intents
 	}
 
-	// 2. 本地模型（~5ms，比关键词准）
+	// 2. 本地模型（~5ms，比关键词准）—— 返回 top-k 候选，保留置信度
 	if ftPredictor != nil {
 		if !ftPredictor.IsTrained() {
 			slog.Warn("fast_text_model_not_found, skipping_fast_text_tier", "path", "dt/ft/model.ftz")
-		} else if result, ok := ftPredictor.Predict(userQuery); ok {
-			if result.Confidence >= fasttext.ConfidenceThreshold {
-				slog.Info("classifier_fast_text_matched", "intent", result.Label, "confidence", result.Confidence, "query", userQuery[:min(50, len(userQuery))])
-				return result.Label
+		} else if results := ftPredictor.Predict(userQuery); len(results) > 0 {
+			intents := make([]model.ClassifiedIntent, 0, len(results))
+			for _, r := range results {
+				intents = append(intents, model.ClassifiedIntent{
+					Intent:     r.Label,
+					Confidence: r.Confidence,
+					Source:     model.SourceFastText,
+				})
 			}
-			slog.Info("classifier_fast_text_low_confidence", "label", result.Label, "confidence", result.Confidence, "query", userQuery[:min(50, len(userQuery))])
+			slog.Info("classifier_fast_text_matched", "intents", intents, "query", userQuery[:min(50, len(userQuery))])
+			return intents
 		}
 	}
 
-	// 3. 语义匹配（~100ms，embedding 向量相似度）
+	// 3. 语义匹配（~100ms，embedding 向量相似度）—— 单意图，携带余弦相似度
 	if embClient != nil {
-		if name := matchSemantic(cfg, userQuery, embClient); name != "" {
-			return name
+		if name, score := matchSemantic(cfg, userQuery, embClient); name != "" {
+			return []model.ClassifiedIntent{{Intent: name, Confidence: score, Source: model.SourceSemantic}}
 		}
 	}
 
-	// 4. LLM 分类（慢但最准，兜底）
+	// 4. LLM 分类（慢但最准，兜底）—— 单意图，固定置信度
 	if llmClient != nil {
 		if name := llmClassify(cfg, userQuery, llmClient); name != "" {
-			return name
+			return []model.ClassifiedIntent{{Intent: name, Confidence: confLLM, Source: model.SourceLLM}}
 		}
 	}
 
@@ -129,14 +133,14 @@ func classify(cfg *model.ClassifierDef, userQuery string, llmClient *llm.Client,
 	if len(cfg.Categories) > 0 {
 		fallback := cfg.Categories[len(cfg.Categories)-1].Name
 		slog.Info("classifier fallback", "intent", fallback, "query", userQuery[:min(50, len(userQuery))])
-		return fallback
+		return []model.ClassifiedIntent{{Intent: fallback, Confidence: confFallback, Source: model.SourceFallback}}
 	}
 
-	return ""
+	return nil
 }
 
-// matchKeyword 用关键词字典做匹配，返回命中的 category name。
-func matchKeyword(query string, categories []model.IntentCategory) model.IntentType {
+// matchKeyword 用关键词字典做匹配，返回命中的 category。
+func matchKeyword(query string, categories []model.IntentCategory) model.ClassifiedIntent {
 	query = strings.ToLower(query)
 	var bestMatch model.IntentType
 	var bestLen int
@@ -153,7 +157,43 @@ func matchKeyword(query string, categories []model.IntentCategory) model.IntentT
 		}
 	}
 
-	return bestMatch
+	if bestMatch == "" {
+		return model.ClassifiedIntent{}
+	}
+	return model.ClassifiedIntent{Intent: bestMatch, Confidence: confKeyword, Source: model.SourceKeyword}
+}
+
+// matchKeywords 收集 query 中命中的所有意图类别（去重），按命中关键词数降序。
+func matchKeywords(query string, categories []model.IntentCategory) []model.ClassifiedIntent {
+	query = strings.ToLower(query)
+	type hit struct {
+		intent model.IntentType
+		count  int
+	}
+	var hits []hit
+
+	for _, cat := range categories {
+		count := 0
+		for _, kw := range cat.Keywords {
+			if strings.Contains(query, strings.ToLower(kw)) {
+				count++
+			}
+		}
+		if count > 0 {
+			hits = append(hits, hit{intent: cat.Name, count: count})
+		}
+	}
+
+	// 按命中关键词数量降序
+	sort.SliceStable(hits, func(i, j int) bool {
+		return hits[i].count > hits[j].count
+	})
+
+	result := make([]model.ClassifiedIntent, len(hits))
+	for i, h := range hits {
+		result[i] = model.ClassifiedIntent{Intent: h.intent, Confidence: confKeyword, Source: model.SourceKeyword}
+	}
+	return result
 }
 
 // ============================================================
@@ -162,6 +202,19 @@ func matchKeyword(query string, categories []model.IntentCategory) model.IntentT
 
 // 语义匹配的相似度阈值（0~1），低于此值视为不匹配
 const semanticThreshold = 0.6
+
+// 各分类层级的默认置信度（0~1）
+const (
+	confKeyword  = 0.95 // 关键词精准匹配
+	confLLM      = 0.75 // LLM 分类
+	confFallback = 0.10 // 兜底，几乎不可信
+)
+
+// ambiguityGap 歧义检测阈值：top-2 置信度差距 < 此值视为歧义
+const ambiguityGap = 0.20
+
+// secondaryMinConf 次意图最低置信度：低于此值不做独立检索，仅文本追问
+const secondaryMinConf = 0.40
 
 // catEmbeddingCache 缓存每个分类器的类别向量
 // key: 分类器各 category 的 name+description+keywords 拼接后的 hash
@@ -176,23 +229,23 @@ type catVector struct {
 }
 
 // matchSemantic 用 embedding 向量相似度做意图匹配。
-// 命中返回 category name，未命中返回空串。
-func matchSemantic(cfg *model.ClassifierDef, userQuery string, embClient *embedding.Client) model.IntentType {
+// 返回最佳匹配类别和余弦相似度，未命中返回 ("", score)。
+func matchSemantic(cfg *model.ClassifierDef, userQuery string, embClient *embedding.Client) (model.IntentType, float64) {
 	// 获取分类别的归一化向量
 	catVecs, err := getCategoryVectors(cfg, embClient)
 	if err != nil {
 		slog.Warn("semantic classifier: failed to get category vectors", "error", err)
-		return ""
+		return "", 0
 	}
 	if len(catVecs) == 0 {
-		return ""
+		return "", 0
 	}
 
 	// 计算用户 query 的向量
 	queryVec, err := embClient.EmbedSingle(userQuery)
 	if err != nil {
 		slog.Warn("semantic classifier: failed to embed query", "error", err)
-		return ""
+		return "", 0
 	}
 
 	// 计算相似度，找到最佳匹配
@@ -208,11 +261,11 @@ func matchSemantic(cfg *model.ClassifierDef, userQuery string, embClient *embedd
 
 	if bestScore >= semanticThreshold {
 		slog.Info("classifier semantic matched", "intent", bestName, "score", bestScore, "query", userQuery[:min(50, len(userQuery))])
-		return bestName
+		return bestName, bestScore
 	}
 
 	slog.Info("classifier semantic no match", "best_score", bestScore, "threshold", semanticThreshold)
-	return ""
+	return "", bestScore
 }
 
 // getCategoryVectors 获取分类器的各类别向量（带缓存）。

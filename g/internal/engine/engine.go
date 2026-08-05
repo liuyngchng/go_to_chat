@@ -148,25 +148,30 @@ func (e *Engine) ExecuteStream(
 			}
 			slog.Info("classifier start", "workflow", workflow.Name)
 			classifyStart := time.Now()
-			intent := classify(workflow.Classifier, userQuery, e.baseLLM, e.embClient, e.ftPredictor)
+			intents := classify(workflow.Classifier, userQuery, e.baseLLM, e.embClient, e.ftPredictor)
 			classifyElapsed := time.Since(classifyStart)
+
+			// 兜底：classify 理论上至少会 fallback 到最后一个类别
+			if len(intents) == 0 {
+				intents = []model.ClassifiedIntent{{Intent: model.IntentFaq, Confidence: confFallback, Source: model.SourceFallback}}
+			}
 
 			classifierOutputVar = workflow.Classifier.OutputVar
 			if classifierOutputVar == "" {
 				classifierOutputVar = "intent"
 			}
-			vars[classifierOutputVar] = string(intent)
+			vars[classifierOutputVar] = string(intents[0].Intent)
 			// sys. 前缀版本（供模板引用）
-			vars["sys."+classifierOutputVar] = string(intent)
+			vars["sys."+classifierOutputVar] = string(intents[0].Intent)
 
 			eventCh <- EngineEvent{
 				Type:  "progress",
 				Step:  0,
 				Total: total,
-				Agent: "意图分类: " + string(intent),
+				Agent: "意图分类: " + string(intents[0].Intent),
 			}
 
-			slog.Info("classifier done", "workflow", workflow.Name, "intent", intent, "duration_ms", classifyElapsed.Milliseconds(), "query", userQuery[:min(50, len(userQuery))])
+			slog.Info("classifier done", "workflow", workflow.Name, "intent", intents[0].Intent, "confidence", intents[0].Confidence, "source", intents[0].Source, "duration_ms", classifyElapsed.Milliseconds(), "query", userQuery[:min(50, len(userQuery))])
 		}
 
 		// 5. 执行节点（DAG 或线性模式）
