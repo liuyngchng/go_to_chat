@@ -1,13 +1,14 @@
 package logger
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +19,12 @@ var (
 	// Logger 全局 logger 实例
 	Logger *slog.Logger
 )
+
+// SourceWidth 源码位置显示宽度（右对齐用），参考 Java logback %logger{36}
+const SourceWidth = 45
+
+// modulePrefix 模块名前缀，从完整函数名中剥离
+const modulePrefix = "kb-chat-flow/"
 
 // customHandler 自定义日志格式
 // 格式: 2026-07-25 09:39:40.638 INFO [manager.go:431] 消息内容 key=value ...
@@ -40,16 +47,20 @@ func (h *customHandler) Handle(_ context.Context, r slog.Record) error {
 	buf = append(buf, ' ')
 	buf = append(buf, r.Level.String()...)
 
-	// 3. 源码位置
+	// 3. 源码位置（包路径/文件名:行号，固定宽度右对齐）
 	if r.PC != 0 {
-		fs := runtime.CallersFrames([]uintptr{r.PC})
-		f, _ := fs.Next()
-		buf = append(buf, ' ')
-		buf = append(buf, '[')
-		buf = append(buf, filepath.Base(f.File)...)
-		buf = append(buf, ':')
-		buf = strconv.AppendInt(buf, int64(f.Line), 10)
-		buf = append(buf, ']')
+		src := r.Source()
+		if src != nil {
+			loc := sourceLocation(src)
+			buf = append(buf, ' ')
+			buf = append(buf, '[')
+			// 固定宽度右对齐，超长不截断（避免丢失分包信息）
+			if len(loc) < SourceWidth {
+				buf = append(buf, bytes.Repeat([]byte{' '}, SourceWidth-len(loc))...)
+			}
+			buf = append(buf, loc...)
+			buf = append(buf, ']')
+		}
 	}
 
 	// 4. 消息
@@ -77,6 +88,28 @@ func (h *customHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		level: h.level,
 		attrs: append(h.attrs, attrs...),
 	}
+}
+
+// sourceLocation 从 slog.Source 生成 "包路径/文件名:行号"。
+// 例如 Source{Function: "kb-chat-flow/internal/kb.(*Manager).handleFile", File: ".../manager.go", Line: 399}
+// 输出: "internal/kb/manager.go:399"
+func sourceLocation(src *slog.Source) string {
+	// 去掉模块前缀 "kb-chat-flow/"
+	pkg := strings.TrimPrefix(src.Function, modulePrefix)
+
+	// 提取包路径：
+	//   - 方法：pkg 形如 "internal/kb.(*Manager).handleFile"，接收者括号 '(' 前的部分是包路径（含尾点）
+	//   - 函数：pkg 形如 "main.classify"，无括号，取最后一个 '.' 前的部分
+	if i := strings.Index(pkg, "("); i > 0 {
+		pkg = pkg[:i]
+	} else if i := strings.LastIndex(pkg, "."); i > 0 {
+		pkg = pkg[:i]
+	}
+	// 去掉包路径尾部的 '.'（如 "internal/kb." → "internal/kb"）
+	pkg = strings.TrimSuffix(pkg, ".")
+
+	// 包路径 + 文件名（basename）+ 行号
+	return pkg + "/" + filepath.Base(src.File) + ":" + strconv.Itoa(src.Line)
 }
 
 func (h *customHandler) WithGroup(name string) slog.Handler {
