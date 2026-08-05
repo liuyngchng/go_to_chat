@@ -20,8 +20,9 @@ var (
 	Logger *slog.Logger
 )
 
-// SourceWidth 源码位置显示宽度（右对齐用），参考 Java logback %logger{36}
-const SourceWidth = 45
+// SourceWidth 源码位置显示宽度（右对齐用）。
+// 按最坏情况计算：5 层缩写目录(9) + 文件名≤10 + ":"+4位行号(5) = 24
+const SourceWidth = 24
 
 // modulePrefix 模块名前缀，从完整函数名中剥离
 const modulePrefix = "kb-chat-flow/"
@@ -108,8 +109,26 @@ func sourceLocation(src *slog.Source) string {
 	// 去掉包路径尾部的 '.'（如 "internal/kb." → "internal/kb"）
 	pkg = strings.TrimSuffix(pkg, ".")
 
-	// 包路径 + 文件名（basename）+ 行号
-	return pkg + "/" + filepath.Base(src.File) + ":" + strconv.Itoa(src.Line)
+	// 包路径首字母缩写（每段取首字母）+ 文件名（basename）+ 行号
+	// 例如 "internal/kb" → "i/k"，输出 "i/k/manager.go:399"
+	return abbreviatePath(pkg) + "/" + filepath.Base(src.File) + ":" + strconv.Itoa(src.Line)
+}
+
+// abbreviatePath 将包路径每段缩写为首字母，用 '/' 连接。
+// 例如 "internal/kb" → "i/k"；"main" → "m"。
+func abbreviatePath(pkg string) string {
+	segs := strings.Split(pkg, "/")
+	for i, seg := range segs {
+		if seg == "" {
+			continue
+		}
+		// 取每个 UTF-8 字符的首字符（避免中文包名被截坏）
+		for _, r := range seg {
+			segs[i] = string(r)
+			break
+		}
+	}
+	return strings.Join(segs, "/")
 }
 
 func (h *customHandler) WithGroup(name string) slog.Handler {
