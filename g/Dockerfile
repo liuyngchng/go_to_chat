@@ -22,6 +22,7 @@ WORKDIR /opt/csm
 COPY kb-chat-flow .
 COPY cfg.yml.template ./cfg.yml.template
 COPY dt ./dt
+COPY vdb ./vdb
 
 RUN mkdir -p log upload_doc vdb dt
 

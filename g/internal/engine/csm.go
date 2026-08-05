@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"time"
@@ -53,11 +54,12 @@ var csmClassifier = &model.ClassifierDef{
 	},
 }
 
-// csmVdbIDs 硬编码的知识库 ID 列表（账单/维修/FAQ 检索时使用）。
-// 与 cfg.db 中 agent_def 各检索智能体绑定的 vdb_ids 一致：
-//
-//	vdb 3 = new_test（燃气客服知识汇总，admin 上传）
-var csmVdbIDs = []int64{3}
+// csm 各分支知识库绑定的配置 key（sys_config 表）
+const (
+	cfgKeyBilling = "csm.billing_vdb_ids"
+	cfgKeyRepair  = "csm.repair_vdb_ids"
+	cfgKeyFaq     = "csm.faq_vdb_ids"
+)
 
 // ============================================================
 // 各意图智能体系统提示词（与 cfg.db agent_def 表内容一致）
@@ -139,13 +141,13 @@ func (e *Engine) csmRun(eventCh chan<- EngineEvent, userQuery, uid string, histo
 	case model.IntentEmergency:
 		e.csmAnswerDirect(eventCh, "紧急调度", csmEmergencyPrompt, userQuery)
 	case model.IntentBilling:
-		e.csmAnswerWithKB(eventCh, "账单检索", "账单客服", csmBillingPrompt, userQuery, uid)
+		e.csmAnswerWithKB(eventCh, "账单检索", "账单客服", csmBillingPrompt, userQuery, uid, e.billingVdbIDsSnapshot())
 	case model.IntentBusiness:
 		e.csmAnswerDirect(eventCh, "业务办理", csmBusinessPrompt, userQuery)
 	case model.IntentRepair:
-		e.csmAnswerWithKB(eventCh, "维修检索", "维修客服", csmRepairPrompt, userQuery, uid)
+		e.csmAnswerWithKB(eventCh, "维修检索", "维修客服", csmRepairPrompt, userQuery, uid, e.repairVdbIDsSnapshot())
 	default: // faq / 未识别
-		e.csmAnswerWithKB(eventCh, "FAQ检索", "综合FAQ", csmFaqPrompt, userQuery, uid)
+		e.csmAnswerWithKB(eventCh, "FAQ检索", "综合FAQ", csmFaqPrompt, userQuery, uid, e.faqVdbIDsSnapshot())
 	}
 
 	// 3. 完成
@@ -177,10 +179,11 @@ func (e *Engine) csmAnswerDirect(eventCh chan<- EngineEvent, agentName, systemPr
 
 // csmAnswerWithKB 先检索知识库，再基于检索结果回答，用于账单 / 维修 / FAQ。
 // 检索步骤与回答步骤分别发送 progress，与动态工作流的节点展示一致。
-func (e *Engine) csmAnswerWithKB(eventCh chan<- EngineEvent, retrieveAgent, answerAgent, systemPrompt, userQuery, uid string) {
+// vdbIDs 指定该分支检索的知识库（各分支独立）。
+func (e *Engine) csmAnswerWithKB(eventCh chan<- EngineEvent, retrieveAgent, answerAgent, systemPrompt, userQuery, uid string, vdbIDs []int64) {
 	eventCh <- EngineEvent{Type: "progress", Step: 1, Total: csmTotalStep, Agent: retrieveAgent}
 
-	kbContext := e.csmSearchKB(userQuery, uid)
+	kbContext := e.csmSearchKB(userQuery, uid, vdbIDs)
 
 	// 与 workflow 节点 InputTemplate "用户问题：{{user_query}}\n检索信息：{{xx_ctx}}" 保持一致
 	userMessage := "用户问题：" + userQuery + "\n检索信息：" + kbContext
@@ -189,13 +192,13 @@ func (e *Engine) csmAnswerWithKB(eventCh chan<- EngineEvent, retrieveAgent, answ
 	e.csmStream(eventCh, answerAgent, systemPrompt, userMessage)
 }
 
-// csmSearchKB 在硬编码的知识库列表中检索用户问题，拼接上下文。
-func (e *Engine) csmSearchKB(userQuery, uid string) string {
+// csmSearchKB 在指定知识库列表中检索用户问题，拼接上下文。
+func (e *Engine) csmSearchKB(userQuery, uid string, vdbIDs []int64) string {
 	start := time.Now()
-	slog.Info("csm_kb_search_start", "vdb_ids", csmVdbIDs, "query", truncateStr(userQuery, 80))
+	slog.Info("csm_kb_search_start", "vdb_ids", vdbIDs, "query", truncateStr(userQuery, 80))
 
 	var sb strings.Builder
-	for _, vdbID := range csmVdbIDs {
+	for _, vdbID := range vdbIDs {
 		ctx, err := e.kbMgr.SearchInKB(userQuery, vdbID, uid, e.cfg.KB.TopK, e.cfg.KB.ScoreThreshold)
 		if err != nil {
 			slog.Warn("csm_kb_search_failed", "vdb_id", vdbID, "error", err)
@@ -247,4 +250,86 @@ func truncateStr(s string, n int) string {
 		return s
 	}
 	return string(runes[:n]) + "..."
+}
+
+// ============================================================
+// csm 分支知识库绑定（sys_config 存储，可热加载）
+// ============================================================
+
+// defaultVdbIDs 默认绑定的知识库 id（无配置时使用）
+var defaultVdbIDs = []int64{3}
+
+// LoadVdbBindings 从 sys_config 加载 csm 各分支绑定的知识库 id。
+// 配置不存在或解析失败时使用默认值 {3}。
+func (e *Engine) LoadVdbBindings() {
+	e.bindingLock.Lock()
+	defer e.bindingLock.Unlock()
+
+	e.billingVdbIDs = e.loadVdbIDs(cfgKeyBilling)
+	e.repairVdbIDs = e.loadVdbIDs(cfgKeyRepair)
+	e.faqVdbIDs = e.loadVdbIDs(cfgKeyFaq)
+
+	slog.Info("csm vdb bindings loaded",
+		"billing", e.billingVdbIDs,
+		"repair", e.repairVdbIDs,
+		"faq", e.faqVdbIDs)
+}
+
+// ReloadVdbBindings 重新加载绑定（配置更新后调用，热加载即时生效）。
+func (e *Engine) ReloadVdbBindings() {
+	e.LoadVdbBindings()
+}
+
+// loadVdbIDs 读取单个配置 key 并解析为 []int64。
+// 配置为空或解析失败返回默认值。
+func (e *Engine) loadVdbIDs(key string) []int64 {
+	if e.store == nil {
+		return defaultVdbIDs
+	}
+	val, err := e.store.GetConfig(key)
+	if err != nil || strings.TrimSpace(val) == "" {
+		return defaultVdbIDs
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(val), &ids); err != nil || len(ids) == 0 {
+		slog.Warn("csm vdb binding 解析失败，使用默认值", "key", key, "val", val, "error", err)
+		return defaultVdbIDs
+	}
+	return ids
+}
+
+// billingVdbIDsSnapshot 返回账单分支绑定的知识库 id（读锁快照）。
+func (e *Engine) billingVdbIDsSnapshot() []int64 {
+	e.bindingLock.RLock()
+	defer e.bindingLock.RUnlock()
+	return e.billingVdbIDs
+}
+
+// repairVdbIDsSnapshot 返回维修分支绑定的知识库 id（读锁快照）。
+func (e *Engine) repairVdbIDsSnapshot() []int64 {
+	e.bindingLock.RLock()
+	defer e.bindingLock.RUnlock()
+	return e.repairVdbIDs
+}
+
+// faqVdbIDsSnapshot 返回 FAQ 分支绑定的知识库 id（读锁快照）。
+func (e *Engine) faqVdbIDsSnapshot() []int64 {
+	e.bindingLock.RLock()
+	defer e.bindingLock.RUnlock()
+	return e.faqVdbIDs
+}
+
+// BillingVdbIDs 返回账单分支当前绑定的知识库 id（供 handler 展示）。
+func (e *Engine) BillingVdbIDs() []int64 {
+	return e.billingVdbIDsSnapshot()
+}
+
+// RepairVdbIDs 返回维修分支当前绑定的知识库 id（供 handler 展示）。
+func (e *Engine) RepairVdbIDs() []int64 {
+	return e.repairVdbIDsSnapshot()
+}
+
+// FaqVdbIDs 返回 FAQ 分支当前绑定的知识库 id（供 handler 展示）。
+func (e *Engine) FaqVdbIDs() []int64 {
+	return e.faqVdbIDsSnapshot()
 }

@@ -902,6 +902,10 @@ func (s *MySQLStore) SeedDefaultConfigs(sysName string) error {
 		{"llm.top_p", "0.9", "LLM Top-P 采样参数 (0-1)"},
 		{"llm.max_tokens", "2048", "LLM 最大生成 Token 数"},
 		{"faq.match_threshold", "0.85", "FAQ 匹配阈值 (0~1)"},
+		// csm 客服流程分支绑定的知识库 id（JSON 数组）
+		{"csm.billing_vdb_ids", "[3]", "账单分支检索的知识库 id（JSON 数组）"},
+		{"csm.repair_vdb_ids", "[3]", "维修分支检索的知识库 id（JSON 数组）"},
+		{"csm.faq_vdb_ids", "[3]", "FAQ分支检索的知识库 id（JSON 数组）"},
 	}
 
 	for _, e := range entries {

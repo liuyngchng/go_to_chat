@@ -2,6 +2,7 @@ package handler
 
 import (
 	"kb-chat-flow/internal/embedding"
+	"kb-chat-flow/internal/engine"
 	"kb-chat-flow/internal/kb"
 	"kb-chat-flow/internal/model"
 	"kb-chat-flow/internal/session"
@@ -46,10 +47,13 @@ func New(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, meta
 
 	faqHandler := NewFaqHandler(metaStore, embClient)
 
+	// 共享 engine 实例：聊天执行 + 知识库绑定热加载用同一个
+	eng := engine.NewEngine(cfg, kbMgr, metaStore)
+
 	return &Handler{
 		Page:     NewPageHandler(cfg),
-		Chat:     NewChatHandler(cfg, kbMgr, sessionMgr, metaStore, faqHandler),
-		Vdb:      NewVdbHandler(cfg, kbMgr, metaStore),
+		Chat:     NewChatHandler(cfg, kbMgr, sessionMgr, metaStore, faqHandler, eng),
+		Vdb:      NewVdbHandler(cfg, kbMgr, metaStore, eng),
 		Config:   NewConfigHandler(cfg, metaStore),
 		Auth:     NewAuthHandler(cfg, metaStore),
 		User:     NewUserHandler(metaStore),

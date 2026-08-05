@@ -57,6 +57,19 @@ func (h *PageHandler) VdbIndex(c *gin.Context) {
 	})
 }
 
+// VdbBindIndex 业务知识库绑定页面
+func (h *PageHandler) VdbBindIndex(c *gin.Context) {
+	uid, role := getUserInfo(c)
+	token := GetTokenStr(c)
+
+	c.HTML(http.StatusOK, "vdb_bind.html", gin.H{
+		"sys_name": h.cfg.Sys.Name,
+		"uid":      uid,
+		"role":     role,
+		"token":    token,
+	})
+}
+
 // UserApiIndex API用户管理页面
 func (h *PageHandler) UserApiIndex(c *gin.Context) {
 	uid, _ := getUserInfo(c)

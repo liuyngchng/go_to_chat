@@ -630,6 +630,55 @@ header p {
     color: #aaa;
 }
 
+/* --- 业务知识库绑定（独立页面 /vdb/bind） --- */
+.vdb-bind-panel {
+    margin: 20px;
+    padding: 16px 20px;
+    background: #f8f9fa;
+    border: 1px solid #e8eaed;
+    border-radius: 8px;
+}
+
+.vdb-bind-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.vdb-bind-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #333;
+}
+
+.vdb-bind-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.vdb-bind-label {
+    width: 80px;
+    flex-shrink: 0;
+    font-size: 0.9rem;
+    color: #555;
+    font-weight: 600;
+}
+
+.vdb-bind-row .kb-select {
+    flex: 1;
+    min-height: 40px;
+}
+
+.vdb-bind-actions {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 /* --- 文件列表 --- */
 .vdb-file-table-wrap {
     flex: 1;

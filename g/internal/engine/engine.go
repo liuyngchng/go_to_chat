@@ -44,6 +44,12 @@ type Engine struct {
 	baseLLM     *llm.Client
 	embClient   *embedding.Client
 	ftPredictor *fasttext.Predictor
+
+	// csm 各分支检索的知识库 id（从 sys_config 加载，可热更新）
+	bindingLock  sync.RWMutex
+	billingVdbIDs []int64
+	repairVdbIDs  []int64
+	faqVdbIDs     []int64
 }
 
 // NewEngine 创建引擎
@@ -61,7 +67,7 @@ func NewEngine(cfg *model.Config, kbMgr *kb.Manager, metaStore store.MetaStore) 
 		cfg.API.EmbeddingModelName,
 	)
 
-	return &Engine{
+	e := &Engine{
 		cfg:         cfg,
 		kbMgr:       kbMgr,
 		store:       metaStore,
@@ -69,6 +75,11 @@ func NewEngine(cfg *model.Config, kbMgr *kb.Manager, metaStore store.MetaStore) 
 		embClient:   embClient,
 		ftPredictor: fasttext.New(),
 	}
+
+	// 启动时从配置加载 csm 分支绑定的知识库
+	e.LoadVdbBindings()
+
+	return e
 }
 
 // ExecuteStream 执行工作流，返回事件通道。

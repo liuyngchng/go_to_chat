@@ -463,6 +463,9 @@
                 <div class="cfg-tab active" data-tab="kbmgmt">
                     <i class="fas fa-database"></i> 知识库
                 </div>
+                <div class="cfg-tab" data-tab="vdb-bind">
+                    <i class="fas fa-link"></i> 知识库绑定
+                </div>
                 <div class="cfg-sidebar-divider"></div>
                 <div class="cfg-tab" data-tab="kb">
                     <i class="fas fa-book"></i> 文本处理
@@ -511,6 +514,21 @@
                         </div>
                         <iframe class="cfg-iframe" id="kbmgmtIframe"
                                 src="/vdb/idx?t={{.token}}">
+                        </iframe>
+                    </div>
+                </div>
+
+                <!-- 知识库绑定（iframe 嵌入独立页面） -->
+                <div class="cfg-section" id="section-vdb-bind">
+                    <div class="cfg-iframe-wrap">
+                        <div class="cfg-iframe-header">
+                            <i class="fas fa-link"></i> 业务知识库绑定
+                            <a href="/admin/vdb/bind?t={{.token}}" target="_blank">
+                                <i class="fas fa-external-link-alt"></i> 新窗口打开
+                            </a>
+                        </div>
+                        <iframe class="cfg-iframe" id="vdbBindIframe"
+                                src="/admin/vdb/bind?t={{.token}}">
                         </iframe>
                     </div>
                 </div>

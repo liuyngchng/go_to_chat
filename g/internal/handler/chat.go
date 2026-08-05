@@ -29,7 +29,7 @@ type ChatHandler struct {
 }
 
 // NewChatHandler 创建聊天处理器
-func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore store.MetaStore, faqHandler *FaqHandler) *ChatHandler {
+func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Manager, metaStore store.MetaStore, faqHandler *FaqHandler, eng *engine.Engine) *ChatHandler {
 	llmClient := llm.New(
 		cfg.API.LLMAPIURI,
 		cfg.API.LLMAPIKey,
@@ -43,7 +43,7 @@ func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Ma
 		sessionMgr: sessionMgr,
 		llmClient:  llmClient,
 		store:      metaStore,
-		engine:     engine.NewEngine(cfg, kbMgr, metaStore),
+		engine:     eng,
 		faqHandler: faqHandler,
 	}
 }

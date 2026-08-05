@@ -93,6 +93,7 @@ cp "$SCRIPT_DIR/$BINARY" "$BUILD_DIR/"
 cp "$SCRIPT_DIR/Dockerfile" "$BUILD_DIR/"
 cp "$SCRIPT_DIR/cfg.yml.template" "$BUILD_DIR/cfg.yml.template"
 cp -r "$SCRIPT_DIR/dt" "$BUILD_DIR/dt"
+cp -r "$SCRIPT_DIR/vdb" "$BUILD_DIR/vdb"
 
 # ---- Step 3: 打 Docker 镜像 ----
 info "构建镜像: $FULL_IMAGE"
@@ -140,6 +141,13 @@ if [[ -d "$SCRIPT_DIR/dt" ]]; then
     cp -r "$SCRIPT_DIR/dt" "$RELEASE_DIR/dt"
 else
     warn "  dt 目录不存在，fastText 模型未打包（首次启动会重新训练）"
+fi
+
+# 知识库向量数据（每库一个 kb_<id>.db，随包交付，运行时挂载读取）
+if [[ -d "$SCRIPT_DIR/vdb" ]]; then
+    cp -r "$SCRIPT_DIR/vdb" "$RELEASE_DIR/vdb"
+else
+    warn "  vdb 目录不存在，知识库向量数据未打包"
 fi
 
 # 启动脚本

@@ -180,6 +180,9 @@ func main() {
 		adminPage.GET("/config", h.Page.ConfigIndex)
 	}
 
+	// 管理员：业务知识库绑定页面（独立入口，嵌入系统管理页）
+	adminPage.GET("/vdb/bind", h.Page.VdbBindIndex)
+
 	// 管理员专属 API
 	adminAPI := r.Group("/api")
 	adminAPI.Use(h.Auth.ApiAuthMiddleware(), h.Auth.AdminOnlyMiddleware())
@@ -188,6 +191,10 @@ func main() {
 
 		// 模型连接测试
 		adminAPI.POST("/config/test-models", h.Config.TestModels)
+
+		// csm 业务知识库绑定（仅管理员可改）
+		adminAPI.GET("/vdb/bindings", h.Vdb.BindingGet)
+		adminAPI.PUT("/vdb/bindings", h.Vdb.BindingPut)
 
 		// FAQ 管理
 		adminAPI.POST("/faq", h.Faq.Create)

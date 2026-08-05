@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"kb-chat-flow/internal/engine"
 	"kb-chat-flow/internal/kb"
 	"kb-chat-flow/internal/model"
 	"kb-chat-flow/internal/store"
@@ -18,14 +20,16 @@ type VdbHandler struct {
 	cfg   *model.Config
 	kbMgr *kb.Manager
 	store store.MetaStore
+	engine *engine.Engine
 }
 
 // NewVdbHandler 创建知识库处理器
-func NewVdbHandler(cfg *model.Config, kbMgr *kb.Manager, metaStore store.MetaStore) *VdbHandler {
+func NewVdbHandler(cfg *model.Config, kbMgr *kb.Manager, metaStore store.MetaStore, eng *engine.Engine) *VdbHandler {
 	return &VdbHandler{
 		cfg:   cfg,
 		kbMgr: kbMgr,
 		store: metaStore,
+		engine: eng,
 	}
 }
 
@@ -202,4 +206,62 @@ func getPathIntParam(c *gin.Context, key string) int64 {
 	val := c.Param(key)
 	n, _ := strconv.ParseInt(val, 10, 64)
 	return n
+}
+
+// ============================================================
+// csm 业务分支知识库绑定（仅管理员）
+// ============================================================
+
+// csmBindingConfig csm 各分支绑定的知识库 id（JSON 数组字符串存储于 sys_config）
+type csmBindingConfig struct {
+	Billing []int64 `json:"billing"`
+	Repair  []int64 `json:"repair"`
+	Faq     []int64 `json:"faq"`
+}
+
+// BindingGet 获取 csm 各分支当前绑定的知识库 id GET /api/vdb/bindings
+func (h *VdbHandler) BindingGet(c *gin.Context) {
+	cfg := csmBindingConfig{
+		Billing: h.engine.BillingVdbIDs(),
+		Repair:  h.engine.RepairVdbIDs(),
+		Faq:     h.engine.FaqVdbIDs(),
+	}
+	c.JSON(http.StatusOK, gin.H{"data": cfg})
+}
+
+// BindingPut 保存 csm 各分支绑定的知识库 id，并热加载生效 PUT /api/vdb/bindings
+func (h *VdbHandler) BindingPut(c *gin.Context) {
+	var req csmBindingConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+
+	// 写库
+	if err := h.store.SetConfig("csm.billing_vdb_ids", mustJSON(req.Billing), "账单分支检索的知识库 id"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存失败: " + err.Error()})
+		return
+	}
+	if err := h.store.SetConfig("csm.repair_vdb_ids", mustJSON(req.Repair), "维修分支检索的知识库 id"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存失败: " + err.Error()})
+		return
+	}
+	if err := h.store.SetConfig("csm.faq_vdb_ids", mustJSON(req.Faq), "FAQ分支检索的知识库 id"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存失败: " + err.Error()})
+		return
+	}
+
+	// 热加载即时生效
+	h.engine.ReloadVdbBindings()
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// mustJSON 将值序列化为 JSON 字符串（忽略错误，仅用于内部配置）
+func mustJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
 }

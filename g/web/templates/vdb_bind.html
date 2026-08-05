@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/lib/font-awesome.all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=2">
+    <title>知识库绑定 - {{.sys_name}}</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-link"></i> 业务知识库绑定</h1>
+            <p>为客服流程各分支（账单/维修/FAQ）指定使用的知识库，保存后立即生效</p>
+        </header>
+
+        <div class="vdb-bind-panel">
+            <div class="vdb-bind-header">
+                <h3><i class="fas fa-link"></i> 客服流程知识库绑定</h3>
+                <span class="vdb-panel-hint">通过知识库名称选择，实际绑定的是知识库 id。支持多选，可同时绑定多个库。</span>
+            </div>
+            <div class="vdb-bind-body">
+                <div class="vdb-bind-row">
+                    <label class="vdb-bind-label">账单分支</label>
+                    <select id="billingBindSelect" class="kb-select" multiple>
+                        <option value="">请选择账单知识库（可多选）</option>
+                    </select>
+                </div>
+                <div class="vdb-bind-row">
+                    <label class="vdb-bind-label">维修分支</label>
+                    <select id="repairBindSelect" class="kb-select" multiple>
+                        <option value="">请选择维修知识库（可多选）</option>
+                    </select>
+                </div>
+                <div class="vdb-bind-row">
+                    <label class="vdb-bind-label">FAQ分支</label>
+                    <select id="faqBindSelect" class="kb-select" multiple>
+                        <option value="">请选择FAQ知识库（可多选）</option>
+                    </select>
+                </div>
+                <div class="vdb-bind-actions">
+                    <button class="btn btn-primary" id="saveBindingsBtn">
+                        <i class="fas fa-save"></i> 保存绑定
+                    </button>
+                    <button class="btn" id="refreshBindingsBtn">
+                        <i class="fas fa-sync-alt"></i> 刷新
+                    </button>
+                    <span id="bind_status" class="vdb-toast" style="display:none;">
+                        <i class="fas fa-check-circle"></i> 绑定已保存并生效
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>{{.sys_name}} - 业务知识库绑定</p>
+        </footer>
+    </div>
+
+    <input type="hidden" id="uid" name="uid" value="{{.uid}}">
+    <script>
+        (function() {
+            var params = new URLSearchParams(window.location.search);
+            var t = params.get('t');
+            if (t) {
+                localStorage.setItem('token', t);
+            }
+        })();
+    </script>
+    <script src="/static/js/vdb_bind.js?v=1"></script>
+</body>
+</html>
