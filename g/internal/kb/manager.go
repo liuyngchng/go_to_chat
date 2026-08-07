@@ -1,6 +1,7 @@
 package kb
 
 import (
+	"context"
 	"crypto/md5"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 
 	"kb-chat-flow/internal/embedding"
 	"kb-chat-flow/internal/model"
+	redisclient "kb-chat-flow/internal/redis"
 	"kb-chat-flow/internal/rerank"
 	"kb-chat-flow/internal/store"
 	"kb-chat-flow/internal/vdb"
@@ -24,21 +26,30 @@ const (
 	VdbDir           = "./vdb"
 	UploadDir        = "./upload_doc"
 	FilePollInterval = 5 * time.Second
+	workerLockKey    = "worker:file_processor:lock"
+	workerLockTTL    = 60 * time.Second // 锁有效期，防止 worker 崩溃后死锁
 )
 
 // Manager 知识库管理器
 type Manager struct {
 	cfg          *model.Config
 	store        store.MetaStore
+	fileStore    FileStore
 	embClient    *embedding.Client
 	rerankClient *rerank.Client
+	redisClient  *redisclient.Client // nil = 单例模式，非 nil = 集群模式（分布式锁）
 	stopCh       chan struct{}
 	mu           sync.RWMutex
 	stores       map[int64]vdb.VectorStore // key: vdbID -> store
 }
 
-// NewManager 创建知识库管理器
+// NewManager 创建知识库管理器（单例模式）
 func NewManager(cfg *model.Config, metaStore store.MetaStore) *Manager {
+	return NewManagerWithStore(cfg, metaStore, NewLocalFileStore(), nil)
+}
+
+// NewManagerWithStore 创建知识库管理器（指定文件存储和 Redis 客户端）
+func NewManagerWithStore(cfg *model.Config, metaStore store.MetaStore, fileStore FileStore, redisClient *redisclient.Client) *Manager {
 	embClient := embedding.New(
 		cfg.API.EmbeddingAPIURI,
 		cfg.API.EmbeddingAPIKey,
@@ -57,8 +68,10 @@ func NewManager(cfg *model.Config, metaStore store.MetaStore) *Manager {
 	return &Manager{
 		cfg:          cfg,
 		store:        metaStore,
+		fileStore:    fileStore,
 		embClient:    embClient,
 		rerankClient: rerankClient,
+		redisClient:  redisClient,
 		stopCh:       make(chan struct{}),
 		stores:       make(map[int64]vdb.VectorStore),
 	}
@@ -138,7 +151,7 @@ func (m *Manager) DeleteKB(id int64, uid string) error {
 	// 删除文件记录中的文件
 	files, _ := m.store.GetFilesByVdbID(id)
 	for _, f := range files {
-		os.Remove(f.FilePath)
+		m.fileStore.Delete(f.FilePath)
 	}
 
 	return m.store.DeleteVdb(id)
@@ -174,8 +187,8 @@ func (m *Manager) UploadFile(vdbID int64, uid, fileName string, reader io.Reader
 		return nil, fmt.Errorf("知识库不存在")
 	}
 
-	// 创建上传目录
-	if err := os.MkdirAll(UploadDir, 0755); err != nil {
+	// 确保上传目录存在
+	if err := m.fileStore.MkdirAll(UploadDir); err != nil {
 		return nil, err
 	}
 
@@ -183,17 +196,10 @@ func (m *Manager) UploadFile(vdbID int64, uid, fileName string, reader io.Reader
 	savedName := fmt.Sprintf("%s_%s", taskID, fileName)
 	savedPath := filepath.Join(UploadDir, savedName)
 
-	// 保存文件
-	f, err := os.Create(savedPath)
-	if err != nil {
-		return nil, fmt.Errorf("创建文件失败: %w", err)
-	}
-	defer f.Close()
-
-	// 计算 MD5
+	// 计算 MD5 同时写入文件存储
 	hash := md5.New()
 	tee := io.TeeReader(reader, hash)
-	if _, err := io.Copy(f, tee); err != nil {
+	if _, err := m.fileStore.Save(savedPath, tee); err != nil {
 		return nil, fmt.Errorf("保存文件失败: %w", err)
 	}
 	fileMD5 := fmt.Sprintf("%x", hash.Sum(nil))
@@ -222,7 +228,7 @@ func (m *Manager) UploadFile(vdbID int64, uid, fileName string, reader io.Reader
 
 	id, err := m.store.CreateFileInfo(finfo)
 	if err != nil {
-		os.Remove(savedPath)
+		m.fileStore.Delete(savedPath)
 		return nil, err
 	}
 	finfo.ID = id
@@ -277,7 +283,7 @@ func (m *Manager) DeleteFile(fileID int64, uid string) error {
 	m.deleteVectorsBySource(finfo.VdbID, absPath)
 
 	// 删除文件
-	os.Remove(finfo.FilePath)
+	m.fileStore.Delete(finfo.FilePath)
 
 	return m.store.DeleteFile(fileID)
 }
@@ -406,9 +412,11 @@ func (m *Manager) SearchAllKBs(query string, uid string, topK int, scoreThreshol
 // 文档处理 Worker
 // ============================================================
 
-// StartFileWorker 启动后台文件处理
+// StartFileWorker 启动后台文件处理。
+// 单例模式：直接轮询处理。
+// 集群模式：通过 Redis 分布式锁确保同一时间只有一个节点处理。
 func (m *Manager) StartFileWorker() {
-	slog.Info("文件处理 worker 已启动")
+	slog.Info("文件处理 worker 已启动", "cluster_mode", m.redisClient != nil)
 	ticker := time.NewTicker(FilePollInterval)
 	defer ticker.Stop()
 
@@ -418,9 +426,50 @@ func (m *Manager) StartFileWorker() {
 			slog.Info("文件处理 worker 已停止")
 			return
 		case <-ticker.C:
-			m.processPendingFiles()
+			// 集群模式：获取分布式锁
+			if m.redisClient != nil {
+				if !m.tryAcquireWorkerLock() {
+					continue // 其他节点正在处理，跳过
+				}
+				m.processPendingFiles()
+				m.releaseWorkerLock()
+			} else {
+				m.processPendingFiles()
+			}
 		}
 	}
+}
+
+// tryAcquireWorkerLock 尝试获取文件处理分布式锁。
+func (m *Manager) tryAcquireWorkerLock() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	ok, err := m.redisClient.SetNX(ctx, workerLockKey, hostname(), workerLockTTL)
+	if err != nil {
+		slog.Warn("worker lock acquire failed", "error", err)
+		return false
+	}
+	return ok
+}
+
+// releaseWorkerLock 释放文件处理分布式锁。
+func (m *Manager) releaseWorkerLock() {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := m.redisClient.Del(ctx, workerLockKey); err != nil {
+		slog.Warn("worker lock release failed", "error", err)
+	}
+}
+
+// hostname 返回主机名（用于分布式锁标识）
+func hostname() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return h
 }
 
 // StopFileWorker 停止 worker
@@ -449,19 +498,31 @@ func (m *Manager) processFile(finfo *model.VdbFileInfo) error {
 	slog.Info("开始处理文件", "name", finfo.Name, "id", finfo.ID)
 	m.store.UpdateFileProgress(finfo.ID, 1, "开始处理文档")
 
+	// 集群模式（S3）：先下载到本地临时文件，处理完后清理
+	localPath := finfo.FilePath
+	var cleanup func()
+	if _, isS3 := m.fileStore.(*S3FileStore); isS3 {
+		tmpPath, cleanFn, err := m.fileStore.(*S3FileStore).DownloadToTemp(finfo.FilePath)
+		if err != nil {
+			return fmt.Errorf("下载文件到本地失败: %w", err)
+		}
+		localPath = tmpPath
+		cleanup = cleanFn
+		defer cleanup()
+	}
+
 	// 根据后缀提取文本：pdf/docx/xlsx 需要解析，txt/md 直接读
-	// 二进制文件走 extractText 流式读取，不先 os.ReadFile 避免大文件撑满内存
-	ext := strings.ToLower(filepath.Ext(finfo.FilePath))
+	ext := strings.ToLower(filepath.Ext(localPath))
 	var text string
 	var err error
 	switch ext {
 	case ".pdf", ".docx", ".xlsx", ".xls":
-		text, err = extractAndSaveText(finfo.FilePath)
+		text, err = extractAndSaveText(localPath, m.fileStore, finfo.FilePath)
 		if err != nil {
 			return fmt.Errorf("提取文本失败: %w", err)
 		}
 	default:
-		content, err := os.ReadFile(finfo.FilePath)
+		content, err := m.fileStore.ReadAll(finfo.FilePath)
 		if err != nil {
 			return fmt.Errorf("读取文件失败: %w", err)
 		}

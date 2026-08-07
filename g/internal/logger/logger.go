@@ -44,9 +44,9 @@ func (h *customHandler) Handle(_ context.Context, r slog.Record) error {
 	// 1. 时间
 	buf := []byte(r.Time.Format("2006-01-02 15:04:05.000"))
 
-	// 2. 级别
+	// 2. 级别（补齐到 5 字符，保证对齐）
 	buf = append(buf, ' ')
-	buf = append(buf, r.Level.String()...)
+	buf = append(buf, padLevel(r.Level.String())...)
 
 	// 3. 源码位置（包路径/文件名:行号，固定宽度右对齐）
 	if r.PC != 0 {
@@ -129,6 +129,14 @@ func abbreviatePath(pkg string) string {
 		}
 	}
 	return strings.Join(segs, "/")
+}
+
+// padLevel 将日志级别补齐到 5 字符，保证对齐
+func padLevel(level string) string {
+	if len(level) < 5 {
+		return level + strings.Repeat(" ", 5-len(level))
+	}
+	return level
 }
 
 func (h *customHandler) WithGroup(name string) slog.Handler {

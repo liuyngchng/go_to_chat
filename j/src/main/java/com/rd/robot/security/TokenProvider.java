@@ -16,15 +16,34 @@ import java.util.HexFormat;
 /**
  * HMAC-SHA256 token authentication.
  * Token format: base64(user_name|role|expiry_timestamp|hmac_signature)
+ *
+ * 单例模式下使用默认密钥，集群模式下可通过 initSecret() 设置统一密钥。
  */
 public class TokenProvider {
 
     private static final Logger log = LoggerFactory.getLogger(TokenProvider.class);
-    private static final byte[] SECRET = "kb-chat-flow_secret_2026".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] DEFAULT_SECRET = "kb-chat-flow_secret_2026".getBytes(StandardCharsets.UTF_8);
     private static final long TOKEN_TTL_SECONDS = 2 * 3600; // 2 hours
     private static final long API_TOKEN_TTL_SECONDS = 2 * 3600; // 2 hours
 
+    /** 运行时密钥（集群模式下从配置注入，单例模式为空则使用默认值） */
+    private static byte[] secret = null;
+
     private TokenProvider() {}
+
+    /**
+     * 初始化 token 签名密钥（集群模式下在启动时调用一次）。
+     * 不调用则使用默认密钥。
+     */
+    public static void initSecret(String tokenSecret) {
+        if (tokenSecret != null && !tokenSecret.isEmpty()) {
+            secret = tokenSecret.getBytes(StandardCharsets.UTF_8);
+        }
+    }
+
+    private static byte[] getSecret() {
+        return secret != null ? secret : DEFAULT_SECRET;
+    }
 
     /**
      * Generate an HMAC-signed token.
@@ -127,7 +146,7 @@ public class TokenProvider {
     private static String hmacSha256(String data) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec keySpec = new SecretKeySpec(SECRET, "HmacSHA256");
+            SecretKeySpec keySpec = new SecretKeySpec(getSecret(), "HmacSHA256");
             mac.init(keySpec);
             byte[] sigBytes = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(sigBytes);

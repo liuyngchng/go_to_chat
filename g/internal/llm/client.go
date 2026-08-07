@@ -119,8 +119,12 @@ func (c *Client) ChatStream(systemPrompt, userMessage string) (<-chan string, <-
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			slog.Error("llm stream response error", "status", resp.StatusCode, "body", string(body))
-			errCh <- fmt.Errorf("LLM API 返回错误 %d: %s", resp.StatusCode, string(body))
+			bodyStr := string(body)
+			if len(bodyStr) > 300 {
+				bodyStr = bodyStr[:300] + "..."
+			}
+			slog.Error("llm stream response error", "status", resp.StatusCode, "body", bodyStr)
+			errCh <- fmt.Errorf("LLM API 返回 %d (模型: %s)", resp.StatusCode, c.ModelName)
 			return
 		}
 
@@ -215,8 +219,12 @@ func (c *Client) Chat(systemPrompt, userMessage string) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Error("llm sync response error", "status", resp.StatusCode, "body", string(body), "duration_ms", time.Since(start).Milliseconds())
-		return "", fmt.Errorf("LLM API 返回错误 %d: %s", resp.StatusCode, string(body))
+		bodyStr := string(body)
+		if len(bodyStr) > 300 {
+			bodyStr = bodyStr[:300] + "..."
+		}
+		slog.Error("llm sync response error", "status", resp.StatusCode, "body", bodyStr, "duration_ms", time.Since(start).Milliseconds())
+		return "", fmt.Errorf("LLM API 返回 %d (模型: %s)", resp.StatusCode, c.ModelName)
 	}
 
 	// 解析非流式响应

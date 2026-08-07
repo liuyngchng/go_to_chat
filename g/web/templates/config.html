@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/static/lib/font-awesome.all.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
-    <title>系统管理 - {{.sys_name}}</title>
+    <title>{{.page_title}}</title>
     <style>
         .cfg-layout {
             display: flex;
@@ -453,8 +453,13 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1><i class="fas fa-cog"></i> 系统管理</h1>
+        <header style="display:flex;align-items:center;">
+            <h1 style="flex:1;"><i class="fas fa-cog"></i> {{.page_title}}</h1>
+            <div class="system-settings-link-container" style="position:static;padding:0;">
+                <a href="#" class="system-settings-link" onclick="logout(); return false;">
+                    <i class="fas fa-sign-out-alt"></i> 退出
+                </a>
+            </div>
         </header>
 
         <div class="cfg-layout">
@@ -1088,6 +1093,12 @@
     <div id="cfgToast" class="cfg-toast"></div>
 
     <script>
+        // 退出登录
+        function logout() {
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+        }
+
         // 从 URL 参数 t 提取 token 并持久化
         (function() {
             var params = new URLSearchParams(window.location.search);

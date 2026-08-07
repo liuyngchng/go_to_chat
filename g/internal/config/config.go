@@ -25,6 +25,12 @@ func Load(path string) (*model.Config, error) {
 	}
 
 	// 设置默认值
+	if cfg.Server.Mode == "" {
+		cfg.Server.Mode = model.ModeSingleton
+	}
+	if cfg.Server.Role == "" {
+		cfg.Server.Role = model.SvcRoleAll
+	}
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 19007
 	}

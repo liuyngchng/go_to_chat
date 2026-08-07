@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"kb-chat-flow/internal/config"
 	"kb-chat-flow/internal/engine"
 	"kb-chat-flow/internal/kb"
 	"kb-chat-flow/internal/model"
@@ -17,20 +18,26 @@ import (
 
 // VdbHandler 知识库管理 API 处理器
 type VdbHandler struct {
-	cfg   *model.Config
-	kbMgr *kb.Manager
-	store store.MetaStore
-	engine *engine.Engine
+	cfg      *model.Config
+	kbMgr    *kb.Manager
+	store    store.MetaStore
+	engine   *engine.Engine
+	notifier config.ChangeNotifier
 }
 
 // NewVdbHandler 创建知识库处理器
 func NewVdbHandler(cfg *model.Config, kbMgr *kb.Manager, metaStore store.MetaStore, eng *engine.Engine) *VdbHandler {
 	return &VdbHandler{
-		cfg:   cfg,
-		kbMgr: kbMgr,
-		store: metaStore,
+		cfg:    cfg,
+		kbMgr:  kbMgr,
+		store:  metaStore,
 		engine: eng,
 	}
+}
+
+// SetNotifier 注入配置变更通知器
+func (h *VdbHandler) SetNotifier(n config.ChangeNotifier) {
+	h.notifier = n
 }
 
 // MyList 获取用户的知识库列表 GET /api/vdb
@@ -329,6 +336,11 @@ func (h *VdbHandler) BindingPut(c *gin.Context) {
 
 	// 热加载即时生效
 	h.engine.ReloadVdbBindings()
+
+	// 通知其他节点重新加载绑定
+	if h.notifier != nil {
+		h.notifier.NotifyChange()
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

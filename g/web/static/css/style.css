@@ -275,6 +275,8 @@ header p {
 .send-button {
     background: linear-gradient(to right, #4b6cb7, #3a5a9e);
     color: white;
+    padding: 12px 20px;
+    min-width: 48px;
 }
 
 .send-button:hover {
@@ -287,6 +289,8 @@ header p {
     background: #ff4d4d;
     color: white;
     display: none;
+    padding: 12px 20px;
+    min-width: 48px;
 }
 
 .stop-button:hover {

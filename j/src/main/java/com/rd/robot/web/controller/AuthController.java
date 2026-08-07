@@ -1,6 +1,7 @@
 package com.rd.robot.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rd.robot.model.Config;
 import com.rd.robot.model.LoginRequest;
 import com.rd.robot.model.User;
 import com.rd.robot.repository.MetaStore;
@@ -14,8 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Authentication controller — login, logout, session management.
@@ -25,11 +26,14 @@ public class AuthController {
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    private final Config cfg;
     private final MetaStore metaStore;
-    private final ConcurrentHashMap<String, Instant> onlineAgents = new ConcurrentHashMap<>();
+    private final PresenceStore presenceStore;
 
-    public AuthController(MetaStore metaStore) {
+    public AuthController(Config cfg, MetaStore metaStore, PresenceStore presenceStore) {
+        this.cfg = cfg;
         this.metaStore = metaStore;
+        this.presenceStore = presenceStore;
     }
 
     /**
@@ -54,11 +58,17 @@ public class AuthController {
                 return;
             }
 
+            // admin 实例：仅管理员可登录
+            if (cfg.getServer().isAdminOnly() && user.getRole() != User.ROLE_ADMIN) {
+                HttpServer.sendJson(ctx, 403, "{\"error\":\"此账号无法访问管理后台\"}");
+                return;
+            }
+
             String token = TokenProvider.generateToken(user.getUserName(), user.getRole());
 
             // Track online agents
             if (user.getRole() == User.ROLE_AGENT) {
-                onlineAgents.put(user.getUserName(), Instant.now());
+                presenceStore.setPresence(user.getUserName(), System.currentTimeMillis());
             }
 
             Map<String, Object> resp = Map.of(
@@ -83,7 +93,7 @@ public class AuthController {
         if (token != null) {
             User user = TokenProvider.parseToken(token);
             if (user != null) {
-                onlineAgents.remove(user.getUserName());
+                presenceStore.removePresence(user.getUserName());
             }
         }
         HttpServer.sendJson(ctx, 200, "{\"status\":\"ok\"}");
@@ -113,21 +123,21 @@ public class AuthController {
      * GET /api/agents — online agents list
      */
     public void getOnlineAgents(ChannelHandlerContext ctx, FullHttpRequest request) {
+        List<Map<String, Object>> agents = presenceStore.getOnlineAgents();
+
         StringBuilder sb = new StringBuilder("{\"agents\":[");
         boolean first = true;
-        for (var entry : onlineAgents.entrySet()) {
+        for (var info : agents) {
             if (!first) sb.append(",");
             first = false;
             sb.append("{");
-            sb.append("\"user_name\":\"").append(entry.getKey()).append("\"");
-            sb.append(",\"login_time\":\"").append(entry.getValue().toString()).append("\"");
-            // Get note from DB
-            try {
-                User user = metaStore.getUserByName(entry.getKey());
-                if (user != null && user.getNote() != null) {
-                    sb.append(",\"note\":\"").append(escapeJson(user.getNote())).append("\"");
-                }
-            } catch (Exception ignored) {}
+            boolean firstField = true;
+            for (var entry : info.entrySet()) {
+                if (!firstField) sb.append(",");
+                firstField = false;
+                sb.append("\"").append(entry.getKey()).append("\":\"")
+                        .append(escapeJson(String.valueOf(entry.getValue()))).append("\"");
+            }
             sb.append("}");
         }
         sb.append("]}");

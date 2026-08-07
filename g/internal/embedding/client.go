@@ -131,13 +131,16 @@ func (c *Client) embedBatch(texts []string) ([][]float64, error) {
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := string(body)
+		if len(bodyStr) > 300 {
+			bodyStr = bodyStr[:300] + "..."
+		}
 		slog.Error("embedding API 返回非 200",
 			"url", url,
 			"model", c.ModelName,
 			"status", resp.StatusCode,
 			"body", bodyStr,
 		)
-		return nil, fmt.Errorf("embedding API 返回错误 %d: %s", resp.StatusCode, bodyStr)
+		return nil, fmt.Errorf("embedding API 返回 %d (模型: %s)", resp.StatusCode, c.ModelName)
 	}
 
 	var result model.EmbeddingResponse

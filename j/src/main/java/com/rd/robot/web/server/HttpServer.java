@@ -116,7 +116,7 @@ public class HttpServer {
                             return;
                         }
                         // Check admin-only paths
-                        if (isAdminPath(path) && user.getRole() != User.ROLE_ADMIN) {
+                        if (isAdminPath(path, method) && user.getRole() != User.ROLE_ADMIN) {
                             sendJson(ctx, 403, "{\"error\":\"仅管理员可访问\"}");
                             return;
                         }
@@ -150,11 +150,34 @@ public class HttpServer {
             return true;
         }
 
-        private boolean isAdminPath(String path) {
-            return path.startsWith("/admin/") || path.equals("/api/users") || path.startsWith("/api/users/")
-                    || path.equals("/api/ai-agents") || path.startsWith("/api/ai-agents/")
-                    || path.equals("/api/workflows") || path.startsWith("/api/workflows/")
-                    || path.equals("/api/config") && !path.equals("/api/config");
+        private boolean isAdminPath(String path, String method) {
+            // Pages
+            if (path.startsWith("/admin/")) return true;
+            // Config write
+            if (path.equals("/api/config") && !"GET".equalsIgnoreCase(method)) return true;
+            if (path.equals("/api/config/test-models")) return true;
+            // VDB write
+            if (path.equals("/api/vdb") && ("POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method))) return true;
+            if (path.matches("/api/vdb/\\d+") && "DELETE".equalsIgnoreCase(method)) return true;
+            if (path.matches("/api/vdb/\\d+/default") && "PUT".equalsIgnoreCase(method)) return true;
+            if (path.matches("/api/vdb/\\d+/files") && "GET".equalsIgnoreCase(method)) return true;
+            if (path.matches("/api/vdb/\\d+/upload") && "POST".equalsIgnoreCase(method)) return true;
+            if (path.matches("/api/vdb/file/\\d+/progress")) return true;
+            if (path.matches("/api/vdb/file/\\d+/chunks")) return true;
+            if (path.matches("/api/vdb/file/\\d+/download")) return true;
+            if (path.startsWith("/api/vdb/file/") && path.endsWith("/delete")) return true;
+            if (path.startsWith("/api/vdb/bindings")) return true;
+            // FAQ write
+            if (path.equals("/api/faq") && ("POST".equalsIgnoreCase(method) || "DELETE".equalsIgnoreCase(method))) return true;
+            if (path.equals("/api/faq/upload")) return true;
+            if (path.matches("/api/faq/\\d+") && ("PUT".equalsIgnoreCase(method) || "DELETE".equalsIgnoreCase(method))) return true;
+            // User management
+            if (path.equals("/api/users")) return true;
+            if (path.matches("/api/users/[^/]+")) return true;
+            // Workflow write
+            if (path.equals("/api/workflows") && "POST".equalsIgnoreCase(method)) return true;
+            if (path.matches("/api/workflows/\\d+") && ("PUT".equalsIgnoreCase(method) || "DELETE".equalsIgnoreCase(method))) return true;
+            return false;
         }
 
         private User authenticateRequest(FullHttpRequest request) {

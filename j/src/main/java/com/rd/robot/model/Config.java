@@ -33,6 +33,12 @@ public class Config {
     @JsonProperty("llm")
     private LLMParams llm;
 
+    @JsonProperty("redis")
+    private RedisConfig redis;
+
+    @JsonProperty("oss")
+    private OSSConfig oss;
+
     @JsonProperty("faq")
     private FaqConfig faq;
 
@@ -55,6 +61,10 @@ public class Config {
     public void setQdrant(QdrantConfig qdrant) { this.qdrant = qdrant; }
     public MySQLConfig getMysql() { return mysql; }
     public void setMysql(MySQLConfig mysql) { this.mysql = mysql; }
+    public RedisConfig getRedis() { return redis; }
+    public void setRedis(RedisConfig redis) { this.redis = redis; }
+    public OSSConfig getOss() { return oss; }
+    public void setOss(OSSConfig oss) { this.oss = oss; }
     public KBConfig getKb() { return kb; }
     public void setKb(KBConfig kb) { this.kb = kb; }
     public LLMParams getLlm() { return llm; }

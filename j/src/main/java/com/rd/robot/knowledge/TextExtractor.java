@@ -10,8 +10,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 /**
  * Text extractor for various document formats (PDF, DOCX, XLSX).
@@ -22,22 +20,33 @@ public class TextExtractor {
 
     /**
      * Extract text from file, with caching to .txt sidecar file.
+     * 单例模式（本地文件系统）
      */
     public static String extractAndSaveText(String filePath) throws Exception {
-        String txtPath = filePath + ".txt";
-        File txtFile = new File(txtPath);
-        if (txtFile.exists()) {
-            String cached = Files.readString(Path.of(txtPath));
-            if (cached != null && !cached.trim().isEmpty()) {
-                return cached;
-            }
-        }
+        return extractAndSaveText(filePath, new LocalFileStore(), filePath);
+    }
 
-        String text = extractText(filePath);
+    /**
+     * Extract text from file, with caching via FileStore.
+     * localPath 用于读取原始文件，remotePath 用于缓存 .txt 文件的路径。
+     */
+    public static String extractAndSaveText(String localPath, FileStore fileStore, String remotePath) throws Exception {
+        String txtPath = remotePath + ".txt";
+        try {
+            byte[] cached = fileStore.readAll(txtPath);
+            if (cached != null && cached.length > 0) {
+                String text = new String(cached);
+                if (!text.trim().isEmpty()) {
+                    return text;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        String text = extractText(localPath);
 
         try {
-            Files.writeString(Path.of(txtPath), text);
-        } catch (IOException ignored) {}
+            fileStore.save(txtPath, new java.io.ByteArrayInputStream(text.getBytes()));
+        } catch (Exception ignored) {}
 
         return text;
     }

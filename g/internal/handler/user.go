@@ -19,12 +19,13 @@ const tokenTTLAPI = 2 * time.Hour
 
 // UserHandler 用户管理处理器
 type UserHandler struct {
-	store store.MetaStore
+	store       store.MetaStore
+	tokenSecret []byte
 }
 
 // NewUserHandler 创建用户管理处理器
-func NewUserHandler(s store.MetaStore) *UserHandler {
-	return &UserHandler{store: s}
+func NewUserHandler(s store.MetaStore, tokenSecret []byte) *UserHandler {
+	return &UserHandler{store: s, tokenSecret: tokenSecret}
 }
 
 // ============================================================
@@ -198,7 +199,7 @@ func (h *UserHandler) GenerateToken(c *gin.Context) {
 	}
 
 	expiry := time.Now().Add(tokenTTLAPI)
-	token := generateToken(userName, role, expiry)
+	token := generateToken(userName, role, expiry, h.tokenSecret)
 
 	// 保存到数据库
 	preview := token[:16]

@@ -289,6 +289,8 @@ public class ConfigController {
             Map<String, Object> resp = new java.util.LinkedHashMap<>();
             resp.put("name", cfg.getSys().getName());
             resp.put("version", "1.0.0");
+            resp.put("server_mode", cfg.getServer().getMode());
+            resp.put("server_role", cfg.getServer().getRole());
             resp.put("work_mode", cfg.getSys().getWorkMode());
             resp.put("vector_backend", cfg.getVector() != null ? cfg.getVector().getBackend() : "local");
             resp.put("store_backend", cfg.getStore() != null ? cfg.getStore().getBackend() : "sqlite");

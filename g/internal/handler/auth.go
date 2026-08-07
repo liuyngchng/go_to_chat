@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"kb-chat-flow/internal/model"
@@ -19,24 +18,33 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HMAC 签名密钥（生产环境应从配置读取）
-var tokenSecret = []byte("kb-chat-flow_secret_2026")
+// defaultTokenSecret 默认 HMAC 签名密钥（cfg.yml 未配置时使用）
+var defaultTokenSecret = []byte("kb-chat-flow_secret_2026")
 
 // token 有效期 2 小时
 const tokenTTL = 2 * time.Hour
 
+// getTokenSecret 获取当前 token 签名密钥
+func (h *AuthHandler) getTokenSecret() []byte {
+	if h.cfg.Server.TokenSecret != "" {
+		return []byte(h.cfg.Server.TokenSecret)
+	}
+	return defaultTokenSecret
+}
+
 // AuthHandler 认证处理器
 type AuthHandler struct {
-	cfg          *model.Config
-	store        store.MetaStore
-	onlineAgents sync.Map // key: userName (string), value: loginTime (time.Time)
+	cfg      *model.Config
+	store    store.MetaStore
+	presence PresenceStore
 }
 
 // NewAuthHandler 创建认证处理器
-func NewAuthHandler(cfg *model.Config, metaStore store.MetaStore) *AuthHandler {
+func NewAuthHandler(cfg *model.Config, metaStore store.MetaStore, presence PresenceStore) *AuthHandler {
 	return &AuthHandler{
-		cfg:   cfg,
-		store: metaStore,
+		cfg:      cfg,
+		store:    metaStore,
+		presence: presence,
 	}
 }
 
@@ -49,7 +57,13 @@ type OnlineAgent struct {
 
 // LoginPage 登录页面
 func (h *AuthHandler) LoginPage(c *gin.Context) {
+	pageTitle := h.cfg.Sys.Name
+	if h.cfg.Server.Role == model.SvcRoleAdmin {
+		pageTitle = h.cfg.Sys.Name + "系统管理"
+	}
+
 	c.HTML(http.StatusOK, "login.html", gin.H{
+		"page_title":   pageTitle,
 		"default_user": "user0",
 		"default_pwd":  "user0",
 		"error_msg":    "",
@@ -58,12 +72,12 @@ func (h *AuthHandler) LoginPage(c *gin.Context) {
 
 // generateToken 生成 HMAC 签名 token
 // 格式: base64(user_name|expiry_timestamp|hmac_signature)
-func generateToken(userName string, role int, expiry time.Time) string {
+func generateToken(userName string, role int, expiry time.Time, secret []byte) string {
 	expiryUnix := strconv.FormatInt(expiry.Unix(), 10)
 	payload := fmt.Sprintf("%s|%d|%s", userName, role, expiryUnix)
 
 	// HMAC-SHA256 签名
-	mac := hmac.New(sha256.New, tokenSecret)
+	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))[:16] // 取前 16 位
 
@@ -72,7 +86,7 @@ func generateToken(userName string, role int, expiry time.Time) string {
 }
 
 // parseToken 解析并验证 token，返回 user 或 nil
-func parseToken(tokenStr string) *model.User {
+func (h *AuthHandler) parseToken(tokenStr string) *model.User {
 	// Base64 解码
 	data, err := base64.RawURLEncoding.DecodeString(tokenStr)
 	if err != nil {
@@ -97,7 +111,7 @@ func parseToken(tokenStr string) *model.User {
 
 	// 验证签名
 	payload := fmt.Sprintf("%s|%d|%s", userName, role, expiryUnix)
-	mac := hmac.New(sha256.New, tokenSecret)
+	mac := hmac.New(sha256.New, h.getTokenSecret())
 	mac.Write([]byte(payload))
 	expectedSig := hex.EncodeToString(mac.Sum(nil))[:16]
 
@@ -138,12 +152,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// admin 实例：仅管理员可登录
+	if h.cfg.Server.Role == model.SvcRoleAdmin && user.Role != model.RoleAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "此账号无法访问管理后台"})
+		return
+	}
+
 	expiry := time.Now().Add(tokenTTL)
-	token := generateToken(user.UserName, user.Role, expiry)
+	token := generateToken(user.UserName, user.Role, expiry, h.getTokenSecret())
 
 	// 如果是客服座席，加入在线列表
 	if user.Role == model.RoleAgent {
-		h.onlineAgents.Store(user.UserName, time.Now())
+		h.presence.SetPresence(user.UserName, time.Now())
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -158,8 +178,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) Logout(c *gin.Context) {
 	// 从 token 中解析用户
 	if tokenStr := extractToken(c); tokenStr != "" {
-		if user := parseToken(tokenStr); user != nil {
-			h.onlineAgents.Delete(user.UserName)
+		if user := h.parseToken(tokenStr); user != nil {
+			h.presence.RemovePresence(user.UserName)
 		}
 	}
 
@@ -190,7 +210,7 @@ func (h *AuthHandler) AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		user := parseToken(tokenStr)
+		user := h.parseToken(tokenStr)
 		if user == nil {
 			c.Redirect(http.StatusFound, "/login")
 			c.Abort()
@@ -240,7 +260,7 @@ func (h *AuthHandler) ApiAuthMiddleware() gin.HandlerFunc {
 		// 始终尝试从请求中提取 token，设置 user（后续 AdminOnlyMiddleware 等依赖此值）
 		tokenStr := extractToken(c)
 		if tokenStr != "" {
-			if user := parseToken(tokenStr); user != nil {
+			if user := h.parseToken(tokenStr); user != nil {
 				c.Set("user", user)
 				c.Set("token_str", tokenStr)
 			}
@@ -265,25 +285,7 @@ func (h *AuthHandler) ApiAuthMiddleware() gin.HandlerFunc {
 
 // GetOnlineAgents 获取在线座席列表
 func (h *AuthHandler) GetOnlineAgents(c *gin.Context) {
-	var agents []OnlineAgent
-	h.onlineAgents.Range(func(key, value interface{}) bool {
-		userName := key.(string)
-		loginTime := value.(time.Time)
-
-		note := ""
-		user, err := h.store.GetUserByName(userName)
-		if err == nil && user != nil {
-			note = user.Note
-		}
-
-		agents = append(agents, OnlineAgent{
-			UserName:  userName,
-			LoginTime: loginTime.Format("2006-01-02 15:04:05"),
-			Note:      note,
-		})
-		return true
-	})
-
+	agents := h.presence.GetOnlineAgents()
 	c.JSON(http.StatusOK, gin.H{"agents": agents})
 }
 
@@ -295,7 +297,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		return
 	}
 
-	user := parseToken(tokenStr)
+	user := h.parseToken(tokenStr)
 	if user == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "token 无效或已过期"})
 		return

@@ -18,8 +18,9 @@ import (
 
 // ConfigHandler 系统配置 API 处理器
 type ConfigHandler struct {
-	cfg   *model.Config
-	store store.MetaStore
+	cfg      *model.Config
+	store    store.MetaStore
+	notifier config.ChangeNotifier
 }
 
 // MaxChunkOverlapRatio overlap 允许占 chunkSize 的最大比例（百分比）
@@ -28,10 +29,11 @@ type ConfigHandler struct {
 const MaxChunkOverlapRatio = 30
 
 // NewConfigHandler 创建配置处理器
-func NewConfigHandler(cfg *model.Config, metaStore store.MetaStore) *ConfigHandler {
+func NewConfigHandler(cfg *model.Config, metaStore store.MetaStore, notifier config.ChangeNotifier) *ConfigHandler {
 	return &ConfigHandler{
-		cfg:   cfg,
-		store: metaStore,
+		cfg:      cfg,
+		store:    metaStore,
+		notifier: notifier,
 	}
 }
 
@@ -278,6 +280,11 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 	if err := config.ReloadRuntimeConfig(h.store, h.cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "重新加载配置失败: " + err.Error()})
 		return
+	}
+
+	// 通知其他节点配置已变更（集群模式下通过 Redis Pub/Sub 广播）
+	if err := h.notifier.NotifyChange(); err != nil {
+		slog.Warn("配置变更通知失败", "error", err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -85,7 +86,12 @@ func (c *Client) Rerank(query string, documents []string, topN int) ([]model.Rer
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rerank API 返回错误 %d: %s", resp.StatusCode, string(body))
+		bodyStr := string(body)
+		if len(bodyStr) > 300 {
+			bodyStr = bodyStr[:300] + "..."
+		}
+		slog.Error("rerank API 返回非 200", "status", resp.StatusCode, "body", bodyStr)
+		return nil, fmt.Errorf("rerank API 返回 %d", resp.StatusCode)
 	}
 
 	var result model.RerankResponse

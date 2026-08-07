@@ -6,6 +6,23 @@ import "time"
 // 配置相关
 // ============================================================
 
+// ServerMode 服务运行模式
+type ServerMode string
+
+const (
+	ModeSingleton ServerMode = "singleton" // 单例模式：内存存储 + SQLite + 本地文件
+	ModeCluster   ServerMode = "cluster"   // 集群模式：Redis + MySQL + Milvus/Qdrant + 共享存储
+)
+
+// ServerRole 服务角色（集群模式下区分路由面）
+type ServerRole string
+
+const (
+	SvcRoleAll   ServerRole = "all"   // 全功能（默认，兼容现有行为）
+	SvcRoleAdmin ServerRole = "admin" // 仅管理面：系统管理 + 文件处理 Worker
+	SvcRoleChat  ServerRole = "chat"  // 仅用户面：聊天 API
+)
+
 // Config 应用配置
 type Config struct {
 	Server ServerConfig `yaml:"server"`
@@ -16,6 +33,8 @@ type Config struct {
 	Milvus MilvusConfig `yaml:"milvus"`
 	Qdrant QdrantConfig `yaml:"qdrant"`
 	MySQL  MySQLConfig  `yaml:"mysql"`
+	Redis  RedisConfig  `yaml:"redis"`
+	OSS    OSSConfig    `yaml:"oss"`
 	KB     KBConfig     `yaml:"kb"`
 	LLM    LLMParams    `yaml:"llm"`
 	Faq    FaqConfig    `yaml:"faq"`
@@ -56,8 +75,11 @@ type LLMParams struct {
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
-	Port  int  `yaml:"port"`
-	Debug bool `yaml:"debug"`
+	Port        int        `yaml:"port"`
+	Debug       bool       `yaml:"debug"`
+	Mode        ServerMode `yaml:"mode"`         // "singleton" (默认) 或 "cluster"
+	Role        ServerRole `yaml:"role"`         // "all" (默认) | "admin" | "chat"
+	TokenSecret string     `yaml:"token_secret"` // HMAC 签名密钥，多节点部署时需一致
 }
 
 // 工作模式枚举
@@ -112,6 +134,22 @@ type QdrantConfig struct {
 // MySQLConfig MySQL 数据库配置
 type MySQLConfig struct {
 	DSN string `yaml:"dsn"` // 例如 "user:password@tcp(127.0.0.1:3306)/kb-chat-flow?charset=utf8mb4&parseTime=True&loc=Local"
+}
+
+// RedisConfig Redis 配置（集群模式使用）
+type RedisConfig struct {
+	Addr     string `yaml:"addr"`     // 例如 "localhost:6379"
+	Password string `yaml:"password"` // 密码，可选
+	DB       int    `yaml:"db"`       // 数据库编号，默认 0
+}
+
+// OSSConfig 对象存储配置（集群模式使用）
+type OSSConfig struct {
+	Type      string `yaml:"type"`      // "minio" | "s3" | "aliyun"
+	Endpoint  string `yaml:"endpoint"`
+	AccessKey string `yaml:"access_key"`
+	SecretKey string `yaml:"secret_key"`
+	Bucket    string `yaml:"bucket"`
 }
 
 // ============================================================

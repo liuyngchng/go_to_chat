@@ -6,37 +6,41 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/ledongthuc/pdf"
 )
 
-// extractAndSaveText 提取文本并保存为 {原文件名}.txt，方便查阅和后续复用
-func extractAndSaveText(filePath string) (string, error) {
-	// 检查是否已有缓存的 txt 文件（避免重复解析）
-	txtPath := filePath + ".txt"
-	if cached, err := os.ReadFile(txtPath); err == nil {
+// extractAndSaveText 提取文本并保存为 {原文件名}.txt，方便查阅和后续复用。
+// fileStore 用于读写缓存文件；remotePath 是对象存储中的原始路径（S3 模式下缓存也放 S3）。
+func extractAndSaveText(localPath string, fileStore FileStore, remotePath string) (string, error) {
+	// 尝试读取缓存的 txt 文件
+	txtPath := remotePath + ".txt"
+	if cached, err := fileStore.ReadAll(txtPath); err == nil {
 		text := string(cached)
 		if strings.TrimSpace(text) != "" {
 			return text, nil
 		}
 	}
 
-	// 提取文本
-	text, err := extractText(filePath)
+	// 提取文本（始终用本地路径）
+	text, err := extractText(localPath)
 	if err != nil {
 		return "", err
 	}
 
-	// 保存到 upload_doc 下，方便人工查阅
-	if err := os.WriteFile(txtPath, []byte(text), 0644); err != nil {
-		// 保存失败不影响主流程
+	// 保存缓存（失败不影响主流程）
+	if _, err := saveString(fileStore, txtPath, text); err != nil {
 		_ = err
 	}
 
 	return text, nil
+}
+
+// saveString 保存字符串到文件存储
+func saveString(fs FileStore, path, content string) (int64, error) {
+	return fs.Save(path, strings.NewReader(content))
 }
 
 // extractText 根据文件后缀提取文本内容

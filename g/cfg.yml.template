@@ -4,6 +4,15 @@
 server:
   port: 19007
   debug: true
+  # 运行模式:
+  #   singleton — 单例模式（默认）：内存存储 + SQLite + 本地文件，最低依赖
+  #   cluster  — 集群模式：Redis + MySQL + Milvus/Qdrant + 共享存储，支持横向扩展
+  mode: "singleton"
+  # 服务角色（集群模式下按角色拆分部署）:
+  #   all   — 全功能（默认，兼容现有行为）
+  #   admin — 仅管理面：系统管理 UI + 管理写 API + 文件处理 Worker，部署 1 台
+  #   chat  — 仅用户聊天面：/api/chat 等用户接口，部署 N 台挂负载均衡
+  role: "all"
 
 sys:
   name: 对话机器人
@@ -64,3 +73,28 @@ qdrant:
   api_key: ""
   # 是否启用 TLS（Qdrant Cloud 建议开启）
   use_tls: false
+
+# ============================================================
+# Redis 配置（仅 server.mode 设为 "cluster" 时需要）
+# ============================================================
+redis:
+  # Redis 服务地址
+  addr: "localhost:6379"
+  # Redis 密码（可选，留空表示无密码）
+  password: ""
+  # Redis 数据库编号（默认 0）
+  db: 0
+
+# ============================================================
+# 对象存储配置（仅 server.mode 设为 "cluster" 时需要）
+# ============================================================
+oss:
+  # 存储类型: "minio" | "s3" | "aliyun"
+  type: "minio"
+  # 存储服务地址
+  endpoint: "localhost:9000"
+  # 访问密钥
+  access_key: ""
+  secret_key: ""
+  # Bucket 名称
+  bucket: "kb-chat-flow"

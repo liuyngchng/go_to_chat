@@ -104,6 +104,20 @@
             <artifactId>milvus-sdk-java</artifactId>
             <version>2.5.8</version>
         </dependency>
+
+        <!-- Jedis (Redis 客户端，集群模式使用) -->
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+            <version>5.2.0</version>
+        </dependency>
+
+        <!-- Minio Client (S3/对象存储，集群模式使用) -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.17</version>
+        </dependency>
     </dependencies>
 
     <build>

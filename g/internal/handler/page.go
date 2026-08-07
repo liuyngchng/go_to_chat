@@ -18,6 +18,15 @@ func NewPageHandler(cfg *model.Config) *PageHandler {
 	return &PageHandler{cfg: cfg}
 }
 
+// pageTitle 根据服务角色生成页面标题
+func (h *PageHandler) pageTitle() string {
+	name := h.cfg.Sys.Name
+	if h.cfg.Server.Role == model.SvcRoleAdmin {
+		return name + "系统管理"
+	}
+	return name
+}
+
 // getUserInfo 从 context 中提取用户信息
 func getUserInfo(c *gin.Context) (string, int) {
 	userVal, exists := c.Get("user")
@@ -37,10 +46,11 @@ func (h *PageHandler) Index(c *gin.Context) {
 	token := GetTokenStr(c)
 
 	c.HTML(http.StatusOK, "index.html", gin.H{
-		"sys_name": h.cfg.Sys.Name,
-		"uid":      uid,
-		"role":     role,
-		"token":    token,
+		"sys_name":  h.cfg.Sys.Name,
+		"page_title": h.pageTitle(),
+		"uid":       uid,
+		"role":      role,
+		"token":     token,
 	})
 }
 
@@ -50,10 +60,11 @@ func (h *PageHandler) VdbIndex(c *gin.Context) {
 	token := GetTokenStr(c)
 
 	c.HTML(http.StatusOK, "vdb.html", gin.H{
-		"sys_name": h.cfg.Sys.Name,
-		"uid":      uid,
-		"role":     role,
-		"token":    token,
+		"sys_name":  h.cfg.Sys.Name,
+		"page_title": h.pageTitle(),
+		"uid":       uid,
+		"role":      role,
+		"token":     token,
 	})
 }
 
@@ -63,10 +74,11 @@ func (h *PageHandler) VdbBindIndex(c *gin.Context) {
 	token := GetTokenStr(c)
 
 	c.HTML(http.StatusOK, "vdb_bind.html", gin.H{
-		"sys_name": h.cfg.Sys.Name,
-		"uid":      uid,
-		"role":     role,
-		"token":    token,
+		"sys_name":  h.cfg.Sys.Name,
+		"page_title": h.pageTitle(),
+		"uid":       uid,
+		"role":      role,
+		"token":     token,
 	})
 }
 
@@ -76,9 +88,10 @@ func (h *PageHandler) UserApiIndex(c *gin.Context) {
 	token := GetTokenStr(c)
 
 	c.HTML(http.StatusOK, "user_api.html", gin.H{
-		"sys_name": h.cfg.Sys.Name,
-		"uid":      uid,
-		"token":    token,
+		"sys_name":   h.cfg.Sys.Name,
+		"page_title": h.pageTitle(),
+		"uid":        uid,
+		"token":      token,
 	})
 }
 
@@ -88,9 +101,10 @@ func (h *PageHandler) ConfigIndex(c *gin.Context) {
 	token := GetTokenStr(c)
 
 	c.HTML(http.StatusOK, "config.html", gin.H{
-		"sys_name": h.cfg.Sys.Name,
-		"uid":      uid,
-		"role":     role,
-		"token":    token,
+		"sys_name":  h.cfg.Sys.Name,
+		"page_title": h.pageTitle(),
+		"uid":       uid,
+		"role":      role,
+		"token":     token,
 	})
 }

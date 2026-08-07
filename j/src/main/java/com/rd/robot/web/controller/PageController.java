@@ -25,6 +25,15 @@ public class PageController {
         this.cfg = cfg;
     }
 
+    /** 根据服务角色生成页面标题 */
+    private String pageTitle() {
+        String name = cfg.getSys().getName();
+        if ("admin".equals(cfg.getServer().getRole())) {
+            return name + "系统管理";
+        }
+        return name;
+    }
+
     public void index(ChannelHandlerContext ctx, FullHttpRequest request) {
         if (requireAuth(ctx, request)) return;
         try {
@@ -34,6 +43,7 @@ public class PageController {
 
             String html = loadTemplate("templates/index.html")
                     .replace("{{sys_name}}", cfg.getSys().getName())
+                    .replace("{{page_title}}", pageTitle())
                     .replace("{{uid}}", uid)
                     .replace("{{role}}", String.valueOf(role))
                     .replace("{{token}}", token != null ? token : "");
@@ -52,6 +62,7 @@ public class PageController {
 
             String html = loadTemplate("templates/vdb.html")
                     .replace("{{sys_name}}", cfg.getSys().getName())
+                    .replace("{{page_title}}", pageTitle())
                     .replace("{{uid}}", uid)
                     .replace("{{role}}", String.valueOf(role))
                     .replace("{{token}}", token != null ? token : "");
@@ -75,6 +86,7 @@ public class PageController {
 
             String html = loadTemplate("templates/config.html")
                     .replace("{{sys_name}}", cfg.getSys().getName())
+                    .replace("{{page_title}}", pageTitle())
                     .replace("{{uid}}", uid)
                     .replace("{{role}}", String.valueOf(role))
                     .replace("{{token}}", token != null ? token : "");
@@ -97,6 +109,7 @@ public class PageController {
 
             String html = loadTemplate("templates/vdb_bind.html")
                     .replace("{{sys_name}}", cfg.getSys().getName())
+                    .replace("{{page_title}}", pageTitle())
                     .replace("{{uid}}", uid)
                     .replace("{{token}}", token != null ? token : "");
             HttpServer.sendHtml(ctx, html);
@@ -113,6 +126,7 @@ public class PageController {
 
             String html = loadTemplate("templates/user_api.html")
                     .replace("{{sys_name}}", cfg.getSys().getName())
+                    .replace("{{page_title}}", pageTitle())
                     .replace("{{uid}}", uid)
                     .replace("{{token}}", token != null ? token : "");
             HttpServer.sendHtml(ctx, html);
@@ -124,6 +138,7 @@ public class PageController {
     public void loginPage(ChannelHandlerContext ctx, FullHttpRequest request) {
         try {
             String html = loadTemplate("templates/login.html")
+                    .replace("{{page_title}}", pageTitle())
                     .replace("{{default_user}}", "user0")
                     .replace("{{default_pwd}}", "user0")
                     .replace("{{error_msg}}", "");

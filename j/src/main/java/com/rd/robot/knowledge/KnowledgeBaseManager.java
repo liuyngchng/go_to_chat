@@ -2,6 +2,7 @@ package com.rd.robot.knowledge;
 
 import com.rd.robot.client.ClientFactory;
 import com.rd.robot.model.*;
+import com.rd.robot.redis.RedisClient;
 import com.rd.robot.repository.MetaStore;
 import com.rd.robot.vector.VectorStore;
 import com.rd.robot.vector.VectorStoreFactory;
@@ -9,9 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.net.InetAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -25,19 +26,32 @@ public class KnowledgeBaseManager {
     private static final Logger log = LoggerFactory.getLogger(KnowledgeBaseManager.class);
     private static final String VDB_DIR = "./vdb";
     private static final String UPLOAD_DIR = "./upload_doc";
+    private static final String WORKER_LOCK_KEY = "worker:file_processor:lock";
+    private static final long WORKER_LOCK_TTL = 60; // 秒
 
     private final Config cfg;
     private final MetaStore store;
     private final ClientFactory clientFactory;
+    private final FileStore fileStore;
+    private final RedisClient redisClient;
     private final ScheduledExecutorService scheduler;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final Map<Long, VectorStore> stores = new HashMap<>();
     private volatile boolean running = true;
 
+    /** 单例模式构造（默认本地文件存储） */
     public KnowledgeBaseManager(Config cfg, MetaStore store, ClientFactory clientFactory) {
+        this(cfg, store, clientFactory, new LocalFileStore(), null);
+    }
+
+    /** 完整构造（可指定 FileStore 和 RedisClient） */
+    public KnowledgeBaseManager(Config cfg, MetaStore store, ClientFactory clientFactory,
+                                FileStore fileStore, RedisClient redisClient) {
         this.cfg = cfg;
         this.store = store;
         this.clientFactory = clientFactory;
+        this.fileStore = fileStore;
+        this.redisClient = redisClient;
 
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "file-worker");
@@ -83,7 +97,7 @@ public class KnowledgeBaseManager {
 
         List<VdbFileInfo> files = store.getFilesByVdbID(id);
         for (VdbFileInfo f : files) {
-            new File(f.getFilePath()).delete();
+            try { fileStore.delete(f.getFilePath()); } catch (Exception ignored) {}
         }
 
         store.deleteVdb(id);
@@ -111,7 +125,7 @@ public class KnowledgeBaseManager {
             throw new RuntimeException("知识库不存在");
         }
 
-        new File(UPLOAD_DIR).mkdirs();
+        fileStore.mkdirAll(UPLOAD_DIR);
 
         String taskId = String.valueOf(System.nanoTime());
         String savedName = taskId + "_" + fileName;
@@ -119,12 +133,15 @@ public class KnowledgeBaseManager {
 
         // Save file and compute MD5
         MessageDigest md5 = MessageDigest.getInstance("MD5");
-        DigestInputStream dis = new DigestInputStream(fileStream, md5);
 
-        try (FileOutputStream fos = new FileOutputStream(savedPath)) {
-            dis.transferTo(fos);
+        // 先读入内存计算 MD5，再写入 FileStore
+        byte[] fileData = fileStream.readAllBytes();
+        byte[] md5Digest = md5.digest(fileData);
+
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(fileData)) {
+            fileStore.save(savedPath, bis);
         }
-        String fileMd5 = bytesToHex(md5.digest());
+        String fileMd5 = bytesToHex(md5Digest);
 
         // Check for duplicate
         VdbFileInfo existing = store.checkFileMD5Exists(vdbId, fileMd5);
@@ -170,7 +187,7 @@ public class KnowledgeBaseManager {
         String absPath = new File(finfo.getFilePath()).getCanonicalPath();
         deleteVectorsBySource(finfo.getVdbId(), absPath);
 
-        new File(finfo.getFilePath()).delete();
+        try { fileStore.delete(finfo.getFilePath()); } catch (Exception ignored) {}
         store.deleteFile(fileId);
     }
 
@@ -183,7 +200,6 @@ public class KnowledgeBaseManager {
 
         double[] queryVec = clientFactory.getEmbeddingClient().embedSingle(query);
 
-        // Determine retrieval count: if rerank enabled, retrieve more first
         int retrieveN = topK;
         boolean useRerank = cfg.getKb().isRerankEnabled() && clientFactory.getRerankClient() != null;
         if (useRerank) {
@@ -196,7 +212,6 @@ public class KnowledgeBaseManager {
 
         var results = vs.search(queryVec, retrieveN, scoreThreshold);
 
-        // Rerank if enabled
         if (useRerank && results.size() > topK) {
             List<String> docs = results.stream()
                     .map(SearchResult::getContent)
@@ -204,7 +219,6 @@ public class KnowledgeBaseManager {
 
             try {
                 var rerankResults = clientFactory.getRerankClient().rerank(query, docs, topK);
-                // Reorder by rerank results
                 List<SearchResult> reordered = new ArrayList<>();
                 for (var rr : rerankResults) {
                     if (rr.getIndex() >= 0 && rr.getIndex() < results.size()) {
@@ -271,7 +285,7 @@ public class KnowledgeBaseManager {
     // ============================================================
 
     public void startFileWorker() {
-        log.info("文件处理 worker 已启动");
+        log.info("文件处理 worker 已启动 cluster_mode={}", redisClient != null);
         scheduler.scheduleWithFixedDelay(this::processPendingFiles, 0, 5, TimeUnit.SECONDS);
     }
 
@@ -284,6 +298,22 @@ public class KnowledgeBaseManager {
     private void processPendingFiles() {
         if (!running) return;
 
+        // 集群模式：获取分布式锁
+        if (redisClient != null) {
+            if (!tryAcquireWorkerLock()) {
+                return; // 其他节点正在处理，跳过
+            }
+            try {
+                processFiles();
+            } finally {
+                releaseWorkerLock();
+            }
+        } else {
+            processFiles();
+        }
+    }
+
+    private void processFiles() {
         List<VdbFileInfo> files = store.getUnprocessedFiles();
         for (VdbFileInfo f : files) {
             if (!running) break;
@@ -300,75 +330,123 @@ public class KnowledgeBaseManager {
         log.info("开始处理文件 name={} id={}", finfo.getName(), finfo.getId());
         store.updateFileProgress(finfo.getId(), 1, "开始处理文档");
 
-        // Extract text
-        String ext = finfo.getFilePath().toLowerCase();
-        String text;
-        if (ext.endsWith(".pdf") || ext.endsWith(".docx") || ext.endsWith(".xlsx") || ext.endsWith(".xls")) {
-            text = TextExtractor.extractAndSaveText(finfo.getFilePath());
-        } else {
-            text = Files.readString(Path.of(finfo.getFilePath()));
+        // 集群模式（S3）：先下载到本地临时文件，处理完后清理
+        String localPath = finfo.getFilePath();
+        String tmpPath = null;
+        if (fileStore instanceof S3FileStore) {
+            tmpPath = ((S3FileStore) fileStore).downloadToTemp(finfo.getFilePath());
+            localPath = tmpPath;
         }
 
-        if (text == null || text.trim().isEmpty()) {
-            store.updateFileProgress(finfo.getId(), 100, "文件内容为空");
-            return;
-        }
-
-        // Split text
-        List<String> chunks = splitText(text, cfg.getKb().getChunkSize(), cfg.getKb().getChunkOverlap());
-        if (chunks.isEmpty()) {
-            store.updateFileProgress(finfo.getId(), 100, "无可切分的文本内容");
-            return;
-        }
-
-        log.info("文件已切分 name={} chunks={}", finfo.getName(), chunks.size());
-        store.updateFileProgress(finfo.getId(), 5,
-                String.format("已切分为 %d 个文本块，开始向量化", chunks.size()));
-
-        // Initialize vector store
-        VectorStore vs = getOrCreateStore(finfo.getVdbId());
-        int dim = clientFactory.getEmbeddingClient().dimension();
-        vs.ensureCollection(dim);
-
-        // Batch vectorization
-        int batchSize = 10;
-        String fileName = new File(finfo.getFilePath()).getName();
-        String absPath = new File(finfo.getFilePath()).getCanonicalPath();
-        int totalChunks = chunks.size();
-
-        for (int i = 0; i < totalChunks; i += batchSize) {
-            if (!running) break;
-
-            int end = Math.min(i + batchSize, totalChunks);
-            List<String> batch = chunks.subList(i, end);
-
-            // Batch embedding
-            List<double[]> embeddings = clientFactory.getEmbeddingClient().embed(batch);
-
-            // Build records
-            List<VectorRecord> records = new ArrayList<>();
-            for (int j = 0; j < batch.size(); j++) {
-                VectorRecord rec = new VectorRecord();
-                rec.setId(fileName + "_chunk_" + (i + j));
-                rec.setVector(embeddings.get(j));
-                rec.setContent(batch.get(j));
-                rec.setMeta(Map.of("source", absPath));
-                records.add(rec);
+        try {
+            // Extract text
+            String ext = localPath.toLowerCase();
+            String text;
+            if (ext.endsWith(".pdf") || ext.endsWith(".docx") || ext.endsWith(".xlsx") || ext.endsWith(".xls")) {
+                text = TextExtractor.extractAndSaveText(localPath, fileStore, finfo.getFilePath());
+            } else {
+                if (fileStore instanceof S3FileStore) {
+                    text = new String(fileStore.readAll(finfo.getFilePath()));
+                } else {
+                    text = Files.readString(Path.of(localPath));
+                }
             }
 
-            // Insert
-            vs.insert(records);
+            if (text == null || text.trim().isEmpty()) {
+                store.updateFileProgress(finfo.getId(), 100, "文件内容为空");
+                return;
+            }
 
-            // Update progress
-            double percent = (double) end / totalChunks * 100;
-            if (percent > 99) percent = 99;
-            store.updateFileProgress(finfo.getId(), percent,
-                    String.format("已处理 %d/%d 个文本块", end, totalChunks));
+            // Split text
+            List<String> chunks = splitText(text, cfg.getKb().getChunkSize(), cfg.getKb().getChunkOverlap());
+            if (chunks.isEmpty()) {
+                store.updateFileProgress(finfo.getId(), 100, "无可切分的文本内容");
+                return;
+            }
+
+            log.info("文件已切分 name={} chunks={}", finfo.getName(), chunks.size());
+            store.updateFileProgress(finfo.getId(), 5,
+                    String.format("已切分为 %d 个文本块，开始向量化", chunks.size()));
+
+            // Initialize vector store
+            VectorStore vs = getOrCreateStore(finfo.getVdbId());
+            int dim = clientFactory.getEmbeddingClient().dimension();
+            vs.ensureCollection(dim);
+
+            // Batch vectorization
+            int batchSize = 10;
+            String fileName = new File(finfo.getFilePath()).getName();
+            String absPath = new File(finfo.getFilePath()).getCanonicalPath();
+            int totalChunks = chunks.size();
+
+            for (int i = 0; i < totalChunks; i += batchSize) {
+                if (!running) break;
+
+                int end = Math.min(i + batchSize, totalChunks);
+                List<String> batch = chunks.subList(i, end);
+
+                List<double[]> embeddings = clientFactory.getEmbeddingClient().embed(batch);
+
+                List<VectorRecord> records = new ArrayList<>();
+                for (int j = 0; j < batch.size(); j++) {
+                    VectorRecord rec = new VectorRecord();
+                    rec.setId(fileName + "_chunk_" + (i + j));
+                    rec.setVector(embeddings.get(j));
+                    rec.setContent(batch.get(j));
+                    rec.setMeta(Map.of("source", absPath));
+                    records.add(rec);
+                }
+
+                vs.insert(records);
+
+                double percent = (double) end / totalChunks * 100;
+                if (percent > 99) percent = 99;
+                store.updateFileProgress(finfo.getId(), percent,
+                        String.format("已处理 %d/%d 个文本块", end, totalChunks));
+            }
+
+            store.updateFileProgress(finfo.getId(), 100,
+                    String.format("处理完成，共 %d 个文本块", totalChunks));
+            log.info("文件处理完成 name={}", finfo.getName());
+        } finally {
+            // 清理 S3 临时文件
+            if (tmpPath != null && fileStore instanceof S3FileStore) {
+                ((S3FileStore) fileStore).cleanTemp(tmpPath);
+            }
         }
+    }
 
-        store.updateFileProgress(finfo.getId(), 100,
-                String.format("处理完成，共 %d 个文本块", totalChunks));
-        log.info("文件处理完成 name={}", finfo.getName());
+    // ============================================================
+    // Distributed lock for file worker
+    // ============================================================
+
+    private boolean tryAcquireWorkerLock() {
+        try {
+            boolean ok = redisClient.setNX(WORKER_LOCK_KEY, getHostname(), WORKER_LOCK_TTL);
+            if (!ok) {
+                // 不打印日志，正常竞争
+            }
+            return ok;
+        } catch (Exception e) {
+            log.warn("worker lock acquire failed error={}", e.getMessage());
+            return false;
+        }
+    }
+
+    private void releaseWorkerLock() {
+        try {
+            redisClient.del(WORKER_LOCK_KEY);
+        } catch (Exception e) {
+            log.warn("worker lock release failed error={}", e.getMessage());
+        }
+    }
+
+    private static String getHostname() {
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (Exception e) {
+            return "unknown";
+        }
     }
 
     // ============================================================
@@ -418,9 +496,7 @@ public class KnowledgeBaseManager {
 
     static List<String> splitText(String text, int chunkSize, int chunkOverlap) {
         if (chunkSize <= 0) chunkSize = 300;
-        // 防止 chunkOverlap >= chunkSize 导致切分步长 <= 0 死循环
         if (chunkOverlap >= chunkSize) chunkOverlap = chunkSize / 3;
-        // 同理防止步长为负
         if (chunkOverlap < 0) chunkOverlap = 0;
 
         String[] paragraphs = text.split("\n");
