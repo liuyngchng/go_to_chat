@@ -1,10 +1,6 @@
-# Chat2KB API 接口文档
+# kb-chat-flow API 接口文档
 
-> Go (`g/`)、Java (`j/`)、Python (`llm_agent/apps/csm/`) 三版本共用。
->
-> 示例中 `<HOST>` = `http://localhost:19007`，`<TOKEN>` 通过登录接口获取。
 
----
 
 ## 概述
 
