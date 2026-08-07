@@ -21,6 +21,8 @@ public interface VectorStore {
 
     void deleteBySource(String source) throws Exception;
 
+    List<SearchResult> listBySource(String source) throws Exception;
+
     void close() throws Exception;
 
     void purge() throws Exception;

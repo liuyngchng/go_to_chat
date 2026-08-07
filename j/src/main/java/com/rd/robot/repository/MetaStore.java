@@ -103,6 +103,13 @@ public interface MetaStore {
     void seedDefaultConfigs();
 
     // ============================================================
+    // Chat sessions (persistence) — TODO: 后续迁移至 Redis
+    // ============================================================
+    void saveChatMessage(String uid, String role, String content);
+    List<ChatMessage> getChatMessages(String uid, int limit);
+    void clearChatMessages(String uid);
+
+    // ============================================================
     // Lifecycle
     // ============================================================
     void close();

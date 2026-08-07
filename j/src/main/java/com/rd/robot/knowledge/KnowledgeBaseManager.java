@@ -152,6 +152,15 @@ public class KnowledgeBaseManager {
         return store.getFilesByVdbID(vdbId);
     }
 
+    public List<SearchResult> getFileChunks(long fileId) throws Exception {
+        VdbFileInfo finfo = store.getFileByID(fileId);
+        if (finfo == null) throw new RuntimeException("文件不存在");
+
+        VectorStore vs = getOrCreateStore(finfo.getVdbId());
+        String absPath = new java.io.File(finfo.getFilePath()).getAbsolutePath();
+        return vs.listBySource(absPath);
+    }
+
     public void deleteFile(long fileId, String uid) throws Exception {
         VdbFileInfo finfo = store.getFileByID(fileId);
         if (finfo == null || !Objects.equals(finfo.getUid(), uid)) {
@@ -217,6 +226,24 @@ public class KnowledgeBaseManager {
         }
 
         return sb.toString();
+    }
+
+    public String searchInKBs(String query, List<Long> vdbIds, String uid, int topK, double scoreThreshold) {
+        StringBuilder allContext = new StringBuilder();
+        for (long vdbId : vdbIds) {
+            try {
+                String ctx = searchInKB(query, vdbId, uid, topK, scoreThreshold);
+                if (ctx != null && !ctx.isEmpty()) {
+                    VdbInfo info = store.getVdbByID(vdbId);
+                    String kbName = info != null ? info.getName() : ("KB_" + vdbId);
+                    allContext.append("[").append(kbName).append("]\n");
+                    allContext.append(ctx);
+                }
+            } catch (Exception e) {
+                log.error("搜索知识库失败 vdbId={} error={}", vdbId, e.getMessage());
+            }
+        }
+        return allContext.toString();
     }
 
     public String searchAllKBs(String query, String uid, int topK, double scoreThreshold) {

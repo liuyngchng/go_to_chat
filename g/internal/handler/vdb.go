@@ -181,13 +181,89 @@ func (h *VdbHandler) Search(c *gin.Context) {
 		return
 	}
 
-	result, err := h.kbMgr.SearchInKB(req.Query, req.VdbID, uid, h.cfg.KB.TopK, h.cfg.KB.ScoreThreshold)
+	if req.Query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "query 不能为空"})
+		return
+	}
+
+	// 优先级: vdb_ids > vdb_id > 搜索全部可访问知识库
+	if len(req.VdbIDs) > 0 {
+		result, err := h.kbMgr.SearchInKBs(req.Query, req.VdbIDs, uid, h.cfg.KB.TopK, h.cfg.KB.ScoreThreshold)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": result})
+		return
+	}
+
+	if req.VdbID > 0 {
+		result, err := h.kbMgr.SearchInKB(req.Query, req.VdbID, uid, h.cfg.KB.TopK, h.cfg.KB.ScoreThreshold)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": result})
+		return
+	}
+
+	// 未指定知识库：搜索所有可访问的
+	result := h.kbMgr.SearchAllKBs(req.Query, uid, h.cfg.KB.TopK, h.cfg.KB.ScoreThreshold)
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
+// Chunks 获取文件的分块列表 GET /api/vdb/file/:id/chunks
+func (h *VdbHandler) Chunks(c *gin.Context) {
+	fileID := getPathIntParam(c, "id")
+	if fileID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的文件 ID"})
+		return
+	}
+
+	// 鉴权：检查文件是否属于当前用户
+	uid := getAuthUID(c)
+	finfo, err := h.store.GetFileByID(fileID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if finfo == nil || finfo.UID != uid {
+		c.JSON(http.StatusNotFound, gin.H{"error": "文件不存在"})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	chunks, err := h.kbMgr.GetFileChunks(fileID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if chunks == nil {
+		chunks = []model.SearchResult{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": chunks})
+}
+
+// Download 下载文件 GET /api/vdb/file/:id/download
+func (h *VdbHandler) Download(c *gin.Context) {
+	fileID := getPathIntParam(c, "id")
+	if fileID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的文件 ID"})
+		return
+	}
+
+	uid := getAuthUID(c)
+	finfo, err := h.store.GetFileByID(fileID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if finfo == nil || finfo.UID != uid {
+		c.JSON(http.StatusNotFound, gin.H{"error": "文件不存在"})
+		return
+	}
+
+	c.FileAttachment(finfo.FilePath, finfo.Name)
 }
 
 // FileDelete 删除文件 DELETE /api/vdb/file/:id

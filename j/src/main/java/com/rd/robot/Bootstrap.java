@@ -40,8 +40,8 @@ public class Bootstrap {
         RuntimeConfig.load(metaStore, cfg);
         log.info("运行时配置加载完成");
 
-        // 5. Initialize session manager
-        SessionManager sessionMgr = new SessionManager();
+        // 5. Initialize session manager (TODO: 后续迁移至 Redis 替代 SQLite 持久化)
+        SessionManager sessionMgr = new SessionManager(metaStore);
 
         // 6. Initialize client factory (lazy, reads config from DB)
         ClientFactory clientFactory = new ClientFactory(metaStore);
@@ -66,6 +66,11 @@ public class Bootstrap {
         // 10. Create router and register routes
         Router router = new Router();
 
+        // -- Health --
+        router.addRoute("GET", "/health", (ctx, req) -> {
+            HttpServer.sendJson(ctx, 200, "{\"status\":\"ok\"}");
+        });
+
         // -- Pages --
         router.addRoute("GET", "/login", pageController::loginPage);
         router.addRoute("GET", "/", pageController::index);
@@ -82,6 +87,7 @@ public class Bootstrap {
 
         // -- Chat API --
         router.addRoute("POST", "/api/chat", chatController::chat);
+        router.addRoute("POST", "/api/chat/sync", chatController::chatSync);
         router.addRoute("GET", "/api/chat/history", chatController::history);
         router.addRoute("POST", "/api/chat/clear", chatController::clear);
 
@@ -89,6 +95,7 @@ public class Bootstrap {
         router.addRoute("GET", "/api/config", configController::getConfig);
         router.addRoute("PUT", "/api/config", configController::updateConfig);
         router.addRoute("POST", "/api/config/test-models", configController::testModels);
+        router.addRoute("GET", "/api/info", configController::info);
 
         // -- VDB API --
         router.addRoute("GET", "/api/vdb", vdbController::myList);
@@ -100,6 +107,8 @@ public class Bootstrap {
         router.addRoute("POST", "/api/vdb/:id/upload", vdbController::upload);
         router.addRoute("POST", "/api/vdb/search", vdbController::search);
         router.addRoute("GET", "/api/vdb/file/:id/progress", vdbController::processInfo);
+        router.addRoute("GET", "/api/vdb/file/:id/chunks", vdbController::chunks);
+        router.addRoute("GET", "/api/vdb/file/:id/download", vdbController::download);
         router.addRoute("DELETE", "/api/vdb/file/:id", vdbController::fileDelete);
         router.addRoute("GET", "/api/vdb/bindings", vdbController::bindingGet);
         router.addRoute("PUT", "/api/vdb/bindings", vdbController::bindingPut);
@@ -107,6 +116,7 @@ public class Bootstrap {
         // -- FAQ API --
         router.addRoute("GET", "/api/faq", faqController::list);
         router.addRoute("GET", "/api/faq/template", faqController::template);
+        router.addRoute("POST", "/api/faq/match", faqController::match);
         router.addRoute("POST", "/api/faq", faqController::create);
         router.addRoute("POST", "/api/faq/upload", faqController::upload);
         router.addRoute("PUT", "/api/faq/:id", faqController::update);

@@ -241,6 +241,29 @@ public class HttpServer {
         ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
     }
 
+    public static void sendFile(ChannelHandlerContext ctx, String filePath, String fileName) {
+        try {
+            java.io.File file = new java.io.File(filePath);
+            if (!file.exists() || !file.isFile()) {
+                sendError(ctx, HttpResponseStatus.NOT_FOUND, "文件不存在");
+                return;
+            }
+            byte[] content = java.nio.file.Files.readAllBytes(file.toPath());
+            FullHttpResponse response = new DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1, HttpResponseStatus.OK,
+                    Unpooled.wrappedBuffer(content));
+            response.headers()
+                    .set(HttpHeaderNames.CONTENT_TYPE, "application/octet-stream")
+                    .set(HttpHeaderNames.CONTENT_DISPOSITION, "attachment; filename=\"" +
+                            new String(fileName.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                                    java.nio.charset.StandardCharsets.ISO_8859_1) + "\"")
+                    .set(HttpHeaderNames.CONTENT_LENGTH, content.length);
+            ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+        } catch (Exception e) {
+            sendError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "文件下载失败: " + e.getMessage());
+        }
+    }
+
     public static void sendError(ChannelHandlerContext ctx, HttpResponseStatus status, String message) {
         String safeMsg = message != null ? message : "内部服务器错误";
         String json = "{\"error\":\"" + escapeJson(safeMsg) + "\"}";

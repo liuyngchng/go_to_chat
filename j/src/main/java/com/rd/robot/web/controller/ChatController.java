@@ -63,6 +63,137 @@ public class ChatController {
     }
 
     /**
+     * POST /api/chat/sync — non-streaming chat, returns JSON.
+     */
+    public void chatSync(ChannelHandlerContext ctx, FullHttpRequest request) {
+        try {
+            String body = request.content().toString(CharsetUtil.UTF_8);
+            ChatRequest req = MAPPER.readValue(body, ChatRequest.class);
+
+            if (req.getMsg() == null || req.getMsg().isEmpty()) {
+                HttpServer.sendJson(ctx, 400, "{\"error\":\"msg 不能为空\"}");
+                return;
+            }
+
+            String uid = resolveUID(request, req);
+
+            switch (cfg.getSys().getWorkMode()) {
+                case 1: chatSyncWithCSM(ctx, req, uid); return;
+                case 2: chatSyncWithDynamic(ctx, req, uid); return;
+                default: chatSyncWithKB(ctx, req, uid);
+            }
+        } catch (Exception e) {
+            log.error("chatSync error", e);
+            HttpServer.sendJson(ctx, 500, "{\"error\":\"聊天请求失败: " + e.getMessage() + "\"}");
+        }
+    }
+
+    private void chatSyncWithKB(ChannelHandlerContext ctx, ChatRequest req, String uid) {
+        try {
+            List<ChatMessage> history = sessionMgr.getHistory(uid);
+            String historyStr = SessionManager.formatHistory(history);
+
+            double faqThreshold = cfg.getFaq().getMatchThreshold();
+            if (faqController.getFaqCount() > 0) {
+                FaqController.FaqMatchResult faqResult = faqController.matchFaq(req.getMsg(), faqThreshold);
+                if (faqResult != null) {
+                    sessionMgr.addMessage(uid, "user", req.getMsg());
+                    sessionMgr.addMessage(uid, "assistant", faqResult.answer());
+                    Map<String, Object> resp = new java.util.LinkedHashMap<>();
+                    resp.put("answer", faqResult.answer());
+                    resp.put("source", "faq");
+                    resp.put("score", faqResult.score());
+                    HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(resp));
+                    return;
+                }
+            }
+
+            LocalDate today = LocalDate.now();
+            String curDate = today.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            String curWeek = getWeekdayCN(today.getDayOfWeek().getValue());
+            String contextStr = kbMgr.searchAllKBs(req.getMsg(), uid,
+                    cfg.getKb().getTopK(), cfg.getKb().getScoreThreshold());
+            String promptTemplate = getPromptTemplate();
+            String systemPrompt = buildPrompt(promptTemplate, contextStr, historyStr, req.getMsg(), curDate, curWeek);
+
+            sessionMgr.addMessage(uid, "user", req.getMsg());
+            String answer = getLlmClient().chat(systemPrompt, "");
+            sessionMgr.addMessage(uid, "assistant", answer);
+
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("answer", answer);
+            resp.put("source", "kb");
+            HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(resp));
+        } catch (Exception e) {
+            log.error("chat sync kb error", e);
+            HttpServer.sendJson(ctx, 500, "{\"error\":\"" + e.getMessage() + "\"}");
+        }
+    }
+
+    private void chatSyncWithCSM(ChannelHandlerContext ctx, ChatRequest req, String uid) {
+        try {
+            List<ChatMessage> history = sessionMgr.getHistory(uid);
+            List<TemplateResolver.ChatMsg> historyMsgs = history.stream()
+                    .map(h -> new TemplateResolver.ChatMsg(h.getRole(), h.getContent()))
+                    .collect(Collectors.toList());
+
+            sessionMgr.addMessage(uid, "user", req.getMsg());
+            var eventQueue = csmEngine.executeStreamCSM(0, req.getMsg(), uid, historyMsgs);
+            StringBuilder sb = new StringBuilder();
+            while (true) {
+                EngineEvent evt = eventQueue.take();
+                if ("done".equals(evt.getType())) break;
+                if ("chunk".equals(evt.getType())) sb.append(evt.getContent());
+                if ("error".equals(evt.getType())) throw new RuntimeException(evt.getContent());
+            }
+            String answer = sb.toString();
+            sessionMgr.addMessage(uid, "assistant", answer);
+
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("answer", answer);
+            resp.put("source", "csm");
+            HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(resp));
+        } catch (Exception e) {
+            log.error("chat sync csm error", e);
+            HttpServer.sendJson(ctx, 500, "{\"error\":\"" + e.getMessage() + "\"}");
+        }
+    }
+
+    private void chatSyncWithDynamic(ChannelHandlerContext ctx, ChatRequest req, String uid) {
+        try {
+            List<ChatMessage> history = sessionMgr.getHistory(uid);
+            List<TemplateResolver.ChatMsg> historyMsgs = history.stream()
+                    .map(h -> new TemplateResolver.ChatMsg(h.getRole(), h.getContent()))
+                    .collect(Collectors.toList());
+
+            sessionMgr.addMessage(uid, "user", req.getMsg());
+            long workflowId = cfg.getSys().getDefaultWorkflowId();
+            String answer = workflowEngine.execute(workflowId, req.getMsg(), uid, historyMsgs);
+            sessionMgr.addMessage(uid, "assistant", answer);
+
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("answer", answer);
+            resp.put("source", "dynamic");
+            HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(resp));
+        } catch (Exception e) {
+            log.error("chat sync dynamic error", e);
+            HttpServer.sendJson(ctx, 500, "{\"error\":\"" + e.getMessage() + "\"}");
+        }
+    }
+
+    private String resolveUID(FullHttpRequest request, ChatRequest req) {
+        if (cfg.getSys().isApiAuth()) {
+            // API auth enabled: force token UID
+            return getUid(request);
+        }
+        // API auth disabled: prefer request UID, fallback to token
+        if (req.getUid() != null && !req.getUid().isEmpty()) {
+            return req.getUid();
+        }
+        return getUid(request);
+    }
+
+    /**
      * POST /api/chat — SSE streaming chat
      */
     public void chat(ChannelHandlerContext ctx, FullHttpRequest request) {
@@ -75,7 +206,7 @@ public class ChatController {
                 return;
             }
 
-            String uid = getUid(request);
+            String uid = resolveUID(request, req);
 
             // Set SSE headers
             FullHttpResponse initResponse = new DefaultFullHttpResponse(

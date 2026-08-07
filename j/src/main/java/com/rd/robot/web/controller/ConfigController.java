@@ -281,6 +281,25 @@ public class ConfigController {
         }
     }
 
+    /**
+     * GET /api/info — service information
+     */
+    public void info(ChannelHandlerContext ctx, FullHttpRequest request) {
+        try {
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("name", cfg.getSys().getName());
+            resp.put("version", "1.0.0");
+            resp.put("work_mode", cfg.getSys().getWorkMode());
+            resp.put("vector_backend", cfg.getVector() != null ? cfg.getVector().getBackend() : "local");
+            resp.put("store_backend", cfg.getStore() != null ? cfg.getStore().getBackend() : "sqlite");
+            resp.put("supported_file_types", List.of("txt", "md", "pdf", "docx", "xlsx"));
+            resp.put("api_auth_enabled", cfg.getSys().isApiAuth());
+            HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(resp));
+        } catch (Exception e) {
+            HttpServer.sendJson(ctx, 500, "{\"error\":\"" + e.getMessage() + "\"}");
+        }
+    }
+
     private String getPrompt() {
         if (metaStore != null) {
             String prompt = metaStore.getPrompt("chat_msg");

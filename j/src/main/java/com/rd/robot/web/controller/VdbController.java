@@ -168,7 +168,6 @@ public class VdbController {
 
     public void search(ChannelHandlerContext ctx, FullHttpRequest req) {
         String uid = getUid(req);
-        long vdbId = getLongParam(req, "vdb_id");
         String query = HttpServer.getParam(req, "query");
 
         if (query == null || query.isEmpty()) {
@@ -177,8 +176,63 @@ public class VdbController {
         }
 
         try {
-            String result = kbMgr.searchInKB(query, vdbId, uid, 5, 0.1);
-            sendJson(ctx, 200, Map.of("data", result));
+            // Parse request body for vdb_ids / vdb_id
+            String body = req.content().toString(CharsetUtil.UTF_8);
+            VdbSearchRequest sr = MAPPER.readValue(body, VdbSearchRequest.class);
+
+            String result;
+            if (sr.getVdbIds() != null && !sr.getVdbIds().isEmpty()) {
+                result = kbMgr.searchInKBs(query, sr.getVdbIds(), uid,
+                        cfg.getKb().getTopK(), cfg.getKb().getScoreThreshold());
+            } else if (sr.getVdbId() != null && sr.getVdbId() > 0) {
+                result = kbMgr.searchInKB(query, sr.getVdbId(), uid,
+                        cfg.getKb().getTopK(), cfg.getKb().getScoreThreshold());
+            } else {
+                result = kbMgr.searchAllKBs(query, uid,
+                        cfg.getKb().getTopK(), cfg.getKb().getScoreThreshold());
+            }
+
+            sendJson(ctx, 200, Map.of("data", result != null ? result : ""));
+        } catch (Exception e) {
+            sendError(ctx, e.getMessage());
+        }
+    }
+
+    public void chunks(ChannelHandlerContext ctx, FullHttpRequest req) {
+        long fileId = getLongParam(req, "file_id");
+        if (fileId == 0) {
+            sendJson(ctx, 400, Map.of("error", "无效的文件 ID"));
+            return;
+        }
+        try {
+            VdbFileInfo finfo = store.getFileByID(fileId);
+            String uid = getUid(req);
+            if (finfo == null || !uid.equals(finfo.getUid())) {
+                sendJson(ctx, 404, Map.of("error", "文件不存在"));
+                return;
+            }
+            List<SearchResult> chunks = kbMgr.getFileChunks(fileId);
+            if (chunks == null) chunks = List.of();
+            sendJson(ctx, 200, Map.of("data", chunks));
+        } catch (Exception e) {
+            sendError(ctx, e.getMessage());
+        }
+    }
+
+    public void download(ChannelHandlerContext ctx, FullHttpRequest req) {
+        long fileId = getLongParam(req, "file_id");
+        if (fileId == 0) {
+            sendJson(ctx, 400, Map.of("error", "无效的文件 ID"));
+            return;
+        }
+        try {
+            VdbFileInfo finfo = store.getFileByID(fileId);
+            String uid = getUid(req);
+            if (finfo == null || !uid.equals(finfo.getUid())) {
+                sendJson(ctx, 404, Map.of("error", "文件不存在"));
+                return;
+            }
+            HttpServer.sendFile(ctx, finfo.getFilePath(), finfo.getName());
         } catch (Exception e) {
             sendError(ctx, e.getMessage());
         }

@@ -215,6 +215,11 @@ public class MilvusVectorStore implements VectorStore {
     }
 
     @Override
+    public List<SearchResult> listBySource(String source) {
+        return List.of(); // Milvus 暂不支持，待后续实现
+    }
+
+    @Override
     public void purge() {
         HasCollectionParam hasParam = HasCollectionParam.newBuilder()
                 .withCollectionName(COLLECTION_NAME)

@@ -23,6 +23,9 @@ type VectorStore interface {
 	// DeleteBySource 根据 source 字段删除记录
 	DeleteBySource(source string) error
 
+	// ListBySource 根据 source 字段列出所有记录（用于查看文档分块）
+	ListBySource(source string) ([]model.SearchResult, error)
+
 	// Close 关闭连接，释放资源
 	Close() error
 

@@ -79,6 +79,46 @@ public class FaqController {
     }
 
     /**
+     * POST /api/faq/match — standalone FAQ matching
+     */
+    public void match(ChannelHandlerContext ctx, FullHttpRequest req) {
+        try {
+            String body = req.content().toString(CharsetUtil.UTF_8);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> params = MAPPER.readValue(body, Map.class);
+            String query = (String) params.get("query");
+
+            if (query == null || query.isEmpty()) {
+                HttpServer.sendJson(ctx, 400, "{\"error\":\"query 不能为空\"}");
+                return;
+            }
+
+            double threshold = 0.85;
+            try {
+                String cfgVal = metaStore.getConfig("faq.match_threshold");
+                if (cfgVal != null && !cfgVal.isEmpty()) {
+                    threshold = Double.parseDouble(cfgVal);
+                }
+            } catch (Exception ignored) {}
+
+            FaqMatchResult result = matchFaq(query, threshold);
+            Map<String, Object> resp = new LinkedHashMap<>();
+            if (result != null) {
+                resp.put("answer", result.answer());
+                resp.put("score", result.score());
+                resp.put("matched", true);
+            } else {
+                resp.put("answer", "");
+                resp.put("score", 0.0);
+                resp.put("matched", false);
+            }
+            HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(resp));
+        } catch (Exception e) {
+            HttpServer.sendJson(ctx, 500, "{\"error\":\"FAQ 匹配失败: " + e.getMessage() + "\"}");
+        }
+    }
+
+    /**
      * POST /api/faq — create a single FAQ entry
      */
     public void create(ChannelHandlerContext ctx, FullHttpRequest req) {

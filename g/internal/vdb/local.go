@@ -275,6 +275,24 @@ func (s *LocalStore) DeleteBySource(source string) error {
 	return nil
 }
 
+// ListBySource 根据 source 列出所有 chunks（从内存缓存读取，按 ID 排序）
+func (s *LocalStore) ListBySource(source string) ([]model.SearchResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var results []model.SearchResult
+	for _, doc := range s.docs {
+		if doc.Source == source {
+			results = append(results, model.SearchResult{
+				ID:      doc.ID,
+				Content: doc.Content,
+				Meta:    map[string]string{"source": doc.Source},
+			})
+		}
+	}
+	return results, nil
+}
+
 // Purge 清空当前知识库的所有向量（物理隔离下 = 关闭并删除独立 db 文件）
 func (s *LocalStore) Purge() error {
 	// 关闭连接，释放文件句柄

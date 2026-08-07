@@ -167,6 +167,16 @@ public class MysqlMetaStore implements MetaStore {
                 INDEX idx_faq_questions_entry (entry_id),
                 FOREIGN KEY (entry_id) REFERENCES faq_entries(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+            -- 会话历史持久化表（TODO: 后续迁移至 Redis）
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                uid VARCHAR(255) NOT NULL,
+                role VARCHAR(16) NOT NULL,
+                content TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_chat_sessions_uid (uid, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """;
         try (Connection conn = ds.getConnection(); Statement stmt = conn.createStatement()) {
             stmt.executeUpdate(schema);
@@ -951,6 +961,55 @@ public class MysqlMetaStore implements MetaStore {
 
         for (var entry : SqliteMetaStore.DEFAULT_CONFIGS) {
             setConfig(entry.key(), entry.value(), entry.desc());
+        }
+    }
+
+    // ============================================================
+    // Chat sessions (persistence) — TODO: 后续迁移至 Redis
+    // ============================================================
+
+    @Override
+    public void saveChatMessage(String uid, String role, String content) {
+        String sql = "INSERT INTO chat_sessions (uid, role, content) VALUES (?, ?, ?)";
+        try (Connection conn = ds.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uid);
+            ps.setString(2, role);
+            ps.setString(3, content);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("保存聊天消息失败: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public List<ChatMessage> getChatMessages(String uid, int limit) {
+        String sql = "SELECT role, content FROM (SELECT role, content FROM chat_sessions WHERE uid = ? ORDER BY created_at DESC LIMIT ?) sub ORDER BY created_at ASC";
+        List<ChatMessage> msgs = new ArrayList<>();
+        try (Connection conn = ds.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uid);
+            ps.setInt(2, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    msgs.add(new ChatMessage(rs.getString("role"), rs.getString("content")));
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("获取聊天消息失败: " + e.getMessage(), e);
+        }
+        return msgs;
+    }
+
+    @Override
+    public void clearChatMessages(String uid) {
+        String sql = "DELETE FROM chat_sessions WHERE uid = ?";
+        try (Connection conn = ds.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uid);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("清空聊天记录失败: " + e.getMessage(), e);
         }
     }
 

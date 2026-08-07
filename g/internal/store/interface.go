@@ -110,6 +110,14 @@ type MetaStore interface {
 	SeedDefaultConfigs(sysName string) error
 
 	// ============================================================
+	// 会话历史 (chat_sessions) — 持久化聊天记录
+	// ============================================================
+
+	SaveChatMessage(uid, role, content string) error
+	GetChatMessages(uid string, limit int) ([]model.ChatMessage, error)
+	ClearChatMessages(uid string) error
+
+	// ============================================================
 	// 生命周期
 	// ============================================================
 

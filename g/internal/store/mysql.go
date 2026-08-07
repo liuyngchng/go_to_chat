@@ -177,6 +177,16 @@ func (s *MySQLStore) migrate() error {
 			INDEX idx_faq_questions_entry (entry_id),
 			FOREIGN KEY (entry_id) REFERENCES faq_entries(id) ON DELETE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+		-- 会话历史持久化表（TODO: 后续迁移至 Redis）
+		CREATE TABLE IF NOT EXISTS chat_sessions (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			uid VARCHAR(255) NOT NULL,
+			role VARCHAR(16) NOT NULL,
+			content TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_chat_sessions_uid (uid, created_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 		`
 	_, err := s.db.Exec(schema)
 	if err != nil {
@@ -1068,6 +1078,47 @@ func (s *MySQLStore) ClearAllFaq() error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// ============================================================
+// 会话历史 (chat_sessions) — TODO: 后续迁移至 Redis
+// ============================================================
+
+// SaveChatMessage 保存一条聊天消息
+func (s *MySQLStore) SaveChatMessage(uid, role, content string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO chat_sessions (uid, role, content) VALUES (?, ?, ?)",
+		uid, role, content,
+	)
+	return err
+}
+
+// GetChatMessages 获取用户最近 limit 条聊天消息
+func (s *MySQLStore) GetChatMessages(uid string, limit int) ([]model.ChatMessage, error) {
+	rows, err := s.db.Query(
+		"SELECT role, content FROM (SELECT role, content FROM chat_sessions WHERE uid = ? ORDER BY created_at DESC LIMIT ?) sub ORDER BY created_at ASC",
+		uid, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []model.ChatMessage
+	for rows.Next() {
+		var m model.ChatMessage
+		if err := rows.Scan(&m.Role, &m.Content); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, rows.Err()
+}
+
+// ClearChatMessages 清空用户聊天记录
+func (s *MySQLStore) ClearChatMessages(uid string) error {
+	_, err := s.db.Exec("DELETE FROM chat_sessions WHERE uid = ?", uid)
+	return err
 }
 
 // ============================================================

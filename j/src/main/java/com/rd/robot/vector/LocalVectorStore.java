@@ -222,6 +222,27 @@ public class LocalVectorStore implements VectorStore {
     }
 
     @Override
+    public List<SearchResult> listBySource(String source) {
+        lock.readLock().lock();
+        try {
+            List<SearchResult> results = new ArrayList<>();
+            for (VectorDoc doc : docs) {
+                if (source.equals(doc.source)) {
+                    SearchResult sr = new SearchResult();
+                    sr.setId(doc.id);
+                    sr.setContent(doc.content);
+                    sr.setMetadata(Map.of("source", doc.source));
+                    sr.setScore(0);
+                    results.add(sr);
+                }
+            }
+            return results;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
     public void purge() throws SQLException {
         String sql = "DELETE FROM vectors WHERE vdb_id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {

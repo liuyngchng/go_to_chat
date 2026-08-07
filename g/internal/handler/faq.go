@@ -232,6 +232,38 @@ func (h *FaqHandler) ClearAll(c *gin.Context) {
 // FAQ 匹配（供 chat.go 调用）
 // ============================================================
 
+// Match FAQ 独立匹配 API POST /api/faq/match
+func (h *FaqHandler) Match(c *gin.Context) {
+	var req model.FaqMatchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+
+	// 从配置中读取阈值，使用默认值 0.85
+	threshold := 0.85
+	cfgVal, err := h.store.GetConfig("faq.match_threshold")
+	if err == nil && cfgVal != "" {
+		var t float64
+		if _, err := fmt.Sscanf(cfgVal, "%f", &t); err == nil {
+			threshold = t
+		}
+	}
+
+	answer, score, err := h.MatchFaq(req.Query, threshold)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "FAQ 匹配失败: " + err.Error()})
+		return
+	}
+
+	matched := score >= threshold
+	c.JSON(http.StatusOK, gin.H{
+		"answer":  answer,
+		"score":   score,
+		"matched": matched,
+	})
+}
+
 // MatchFaq 匹配用户问题到 FAQ，返回匹配的答案和分数
 // 返回值: (答案, 匹配分数, 错误)
 // 如果没有匹配（分数不够），返回 ("", 0, nil)

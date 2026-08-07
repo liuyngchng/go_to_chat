@@ -174,6 +174,15 @@ func (s *SQLiteStore) migrate() error {
 			FOREIGN KEY (entry_id) REFERENCES faq_entries(id) ON DELETE CASCADE
 		);
 
+		-- 会话历史持久化表（TODO: 后续迁移至 Redis）
+		CREATE TABLE IF NOT EXISTS chat_sessions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			uid TEXT NOT NULL,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
 		-- 索引
 		CREATE INDEX IF NOT EXISTS idx_vdb_info_uid ON vdb_info(uid);
 		CREATE INDEX IF NOT EXISTS idx_vdb_file_info_vdb_id ON vdb_file_info(vdb_id);
@@ -182,6 +191,7 @@ func (s *SQLiteStore) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_name);
 		CREATE INDEX IF NOT EXISTS idx_api_call_log_user ON api_call_log(user_name);
 		CREATE INDEX IF NOT EXISTS idx_faq_questions_entry ON faq_questions(entry_id);
+		CREATE INDEX IF NOT EXISTS idx_chat_sessions_uid ON chat_sessions(uid, created_at);
 		`
 	_, err := s.db.Exec(schema)
 	if err != nil {
@@ -1155,6 +1165,51 @@ func (s *SQLiteStore) ClearAllFaq() error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// ============================================================
+// 会话历史 (chat_sessions) — TODO: 后续迁移至 Redis
+// ============================================================
+
+// SaveChatMessage 保存一条聊天消息
+func (s *SQLiteStore) SaveChatMessage(uid, role, content string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO chat_sessions (uid, role, content) VALUES (?, ?, ?)",
+		uid, role, content,
+	)
+	return err
+}
+
+// GetChatMessages 获取用户最近 limit 条聊天消息
+func (s *SQLiteStore) GetChatMessages(uid string, limit int) ([]model.ChatMessage, error) {
+	rows, err := s.db.Query(
+		"SELECT role, content FROM chat_sessions WHERE uid = ? ORDER BY created_at DESC LIMIT ?",
+		uid, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []model.ChatMessage
+	for rows.Next() {
+		var m model.ChatMessage
+		if err := rows.Scan(&m.Role, &m.Content); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	// 反转回时间正序
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	return msgs, rows.Err()
+}
+
+// ClearChatMessages 清空用户聊天记录
+func (s *SQLiteStore) ClearChatMessages(uid string) error {
+	_, err := s.db.Exec("DELETE FROM chat_sessions WHERE uid = ?", uid)
+	return err
 }
 
 // ============================================================

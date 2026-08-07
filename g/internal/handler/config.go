@@ -375,3 +375,18 @@ func boolToStr(b bool) string {
 	}
 	return "false"
 }
+
+// Info 返回服务信息 GET /api/info
+func (h *ConfigHandler) Info(c *gin.Context) {
+	supportedFileTypes := []string{"txt", "md", "pdf", "docx", "xlsx"}
+
+	c.JSON(http.StatusOK, gin.H{
+		"name":                h.cfg.Sys.Name,
+		"version":             "1.0.0",
+		"work_mode":           h.cfg.Sys.WorkMode,
+		"vector_backend":      h.cfg.Vector.Backend,
+		"store_backend":       h.cfg.Store.Backend,
+		"supported_file_types": supportedFileTypes,
+		"api_auth_enabled":    h.cfg.Sys.ApiAuth,
+	})
+}

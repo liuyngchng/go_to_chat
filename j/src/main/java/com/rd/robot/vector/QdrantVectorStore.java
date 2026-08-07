@@ -116,6 +116,14 @@ public class QdrantVectorStore implements VectorStore {
     }
 
     @Override
+    public List<SearchResult> listBySource(String source) throws Exception {
+        if (!qdrantAvailable) {
+            return fallbackStore.listBySource(source);
+        }
+        return List.of(); // Qdrant 暂不支持，待后续实现
+    }
+
+    @Override
     public void purge() throws Exception {
         if (qdrantAvailable) {
             log.info("Qdrant purge: {}", collectionName);

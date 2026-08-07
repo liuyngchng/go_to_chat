@@ -48,6 +48,120 @@ func NewChatHandler(cfg *model.Config, kbMgr *kb.Manager, sessionMgr *session.Ma
 	}
 }
 
+// resolveUID 根据 api_auth 开关决定使用哪个 UID
+func (h *ChatHandler) resolveUID(c *gin.Context, reqUID string) string {
+	if h.cfg.Sys.ApiAuth {
+		// API 认证开启时，强制使用 token 解析的 uid
+		return getAuthUID(c)
+	}
+	// API 认证关闭时，优先使用请求中的 uid，fallback 为 token uid
+	if reqUID != "" {
+		return reqUID
+	}
+	return getAuthUID(c)
+}
+
+// ChatSync 非流式聊天接口 POST /api/chat/sync
+func (h *ChatHandler) ChatSync(c *gin.Context) {
+	var req model.ChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+
+	uid := h.resolveUID(c, req.UID)
+
+	switch h.cfg.Sys.WorkMode {
+	case model.WorkModeCSM:
+		h.chatSyncWithCSM(c, &req, uid)
+	case model.WorkModeDynamic:
+		h.chatSyncWithDynamic(c, &req, uid)
+	default:
+		h.chatSyncWithKB(c, &req, uid)
+	}
+}
+
+// chatSyncWithKB 知识库问答模式同步版本
+func (h *ChatHandler) chatSyncWithKB(c *gin.Context, req *model.ChatRequest, uid string) {
+	history := h.sessionMgr.GetHistory(uid)
+	historyStr := session.FormatHistory(history)
+
+	faqThreshold := h.cfg.Faq.MatchThreshold
+	if h.faqHandler != nil && h.faqHandler.GetFaqCount() > 0 {
+		faqAnswer, faqScore, err := h.faqHandler.MatchFaq(req.Msg, faqThreshold)
+		if err == nil && faqAnswer != "" {
+			h.sessionMgr.AddMessage(uid, "user", req.Msg)
+			h.sessionMgr.AddMessage(uid, "assistant", faqAnswer)
+			c.JSON(http.StatusOK, gin.H{
+				"answer": faqAnswer,
+				"source": "faq",
+				"score":  faqScore,
+			})
+			return
+		}
+	}
+
+	curDate := time.Now().Format("2006-01-02")
+	curWeek := getWeekdayCN(time.Now().Weekday())
+
+	contextStr := h.kbMgr.SearchAllKBs(req.Msg, uid, h.cfg.KB.TopK, h.cfg.KB.ScoreThreshold)
+
+	promptTemplate := h.getPromptTemplate()
+	systemPrompt := buildPrompt(promptTemplate, contextStr, historyStr, req.Msg, curDate, curWeek)
+
+	h.sessionMgr.AddMessage(uid, "user", req.Msg)
+
+	answer, err := h.llmClient.Chat(systemPrompt, "")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "LLM 调用失败: " + err.Error()})
+		return
+	}
+
+	h.sessionMgr.AddMessage(uid, "assistant", answer)
+	c.JSON(http.StatusOK, gin.H{"answer": answer, "source": "kb"})
+}
+
+// chatSyncWithCSM CSM 工作流同步版本
+func (h *ChatHandler) chatSyncWithCSM(c *gin.Context, req *model.ChatRequest, uid string) {
+	history := h.sessionMgr.GetHistory(uid)
+	historyMsgs := make([]engine.ChatMsg, len(history))
+	for i, msg := range history {
+		historyMsgs[i] = engine.ChatMsg{Role: msg.Role, Content: msg.Content}
+	}
+
+	h.sessionMgr.AddMessage(uid, "user", req.Msg)
+
+	answer, err := h.engine.Execute(0, req.Msg, uid, historyMsgs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "工作流执行失败: " + err.Error()})
+		return
+	}
+
+	h.sessionMgr.AddMessage(uid, "assistant", answer)
+	c.JSON(http.StatusOK, gin.H{"answer": answer, "source": "csm"})
+}
+
+// chatSyncWithDynamic 动态工作流同步版本
+func (h *ChatHandler) chatSyncWithDynamic(c *gin.Context, req *model.ChatRequest, uid string) {
+	history := h.sessionMgr.GetHistory(uid)
+	historyMsgs := make([]engine.ChatMsg, len(history))
+	for i, msg := range history {
+		historyMsgs[i] = engine.ChatMsg{Role: msg.Role, Content: msg.Content}
+	}
+
+	h.sessionMgr.AddMessage(uid, "user", req.Msg)
+
+	workflowID := h.cfg.Sys.DefaultWorkflowID
+	answer, err := h.engine.Execute(workflowID, req.Msg, uid, historyMsgs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "工作流执行失败: " + err.Error()})
+		return
+	}
+
+	h.sessionMgr.AddMessage(uid, "assistant", answer)
+	c.JSON(http.StatusOK, gin.H{"answer": answer, "source": "dynamic"})
+}
+
 // Chat 处理聊天请求，SSE 流式返回
 func (h *ChatHandler) Chat(c *gin.Context) {
 	var req model.ChatRequest
@@ -56,7 +170,7 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	uid := getAuthUID(c)
+	uid := h.resolveUID(c, req.UID)
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")

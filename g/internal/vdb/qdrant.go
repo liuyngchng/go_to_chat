@@ -221,6 +221,11 @@ func (s *QdrantStore) DeleteBySource(source string) error {
 	return nil
 }
 
+// ListBySource 根据 source 列出所有 chunks（Qdrant 暂不支持，待后续实现）
+func (s *QdrantStore) ListBySource(source string) ([]model.SearchResult, error) {
+	return nil, nil
+}
+
 // Purge 清空当前 store 的所有数据
 func (s *QdrantStore) Purge() error {
 	_, err := s.collectionsClient.Delete(s.ctx, &qdrant.DeleteCollection{

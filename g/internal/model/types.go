@@ -173,7 +173,13 @@ type VdbCreateRequest struct {
 
 // VdbSearchRequest 知识库搜索请求
 type VdbSearchRequest struct {
-	VdbID int64  `json:"vdb_id" binding:"required"`
+	VdbID  int64   `json:"vdb_id"`            // 单个知识库 ID（兼容旧版），与 VdbIDs 二选一
+	VdbIDs []int64 `json:"vdb_ids,omitempty"` // 多个知识库 ID 列表，为空则搜索所有可访问知识库
+	Query  string  `json:"query" binding:"required"`
+}
+
+// FaqMatchRequest FAQ 匹配请求
+type FaqMatchRequest struct {
 	Query string `json:"query" binding:"required"`
 }
 

@@ -2,6 +2,9 @@ package com.rd.robot.session;
 
 import com.rd.robot.model.ChatHistory;
 import com.rd.robot.model.ChatMessage;
+import com.rd.robot.repository.MetaStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,15 +12,23 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Session manager — in-memory with optional DB persistence.
+ * TODO: 后续迁移至 Redis 替代 SQLite 持久化
+ */
 public class SessionManager {
 
+    private static final Logger log = LoggerFactory.getLogger(SessionManager.class);
     private static final int MAX_HISTORY_ROUNDS = 5;
     private static final long SESSION_TIMEOUT_MS = 30 * 60 * 1000L;
+    private static final int PERSIST_LOAD_LIMIT = 20;
 
     private final ConcurrentHashMap<String, ChatHistory> sessions = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupScheduler;
+    private final MetaStore store;
 
-    public SessionManager() {
+    public SessionManager(MetaStore store) {
+        this.store = store;
         cleanupScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "session-cleanup");
             t.setDaemon(true);
@@ -32,13 +43,30 @@ public class SessionManager {
 
     public List<ChatMessage> getHistory(String uid) {
         ChatHistory history = sessions.get(uid);
-        if (history == null) {
-            return Collections.emptyList();
+        if (history != null) {
+            synchronized (history) {
+                return new ArrayList<>(history.getMessages());
+            }
         }
 
-        synchronized (history) {
-            return new ArrayList<>(history.getMessages());
+        // Fallback: load from DB
+        if (store != null) {
+            try {
+                List<ChatMessage> msgs = store.getChatMessages(uid, PERSIST_LOAD_LIMIT);
+                if (msgs != null && !msgs.isEmpty()) {
+                    ChatHistory loaded = new ChatHistory(uid);
+                    loaded.setMessages(new ArrayList<>(msgs));
+                    loaded.setUpdatedAt(System.currentTimeMillis());
+                    sessions.put(uid, loaded);
+                    log.info("从 DB 恢复聊天历史 uid={} count={}", uid, msgs.size());
+                    return msgs;
+                }
+            } catch (Exception e) {
+                log.warn("从 DB 加载聊天历史失败 uid={} error={}", uid, e.getMessage());
+            }
         }
+
+        return Collections.emptyList();
     }
 
     public void addMessage(String uid, String role, String content) {
@@ -55,10 +83,29 @@ public class SessionManager {
                 history.setMessages(new ArrayList<>(history.getMessages().subList(start, history.getMessages().size())));
             }
         }
+
+        // Async persist to DB
+        if (store != null) {
+            final String u = uid;
+            new Thread(() -> {
+                try {
+                    store.saveChatMessage(u, role, content);
+                } catch (Exception e) {
+                    log.warn("持久化聊天消息失败 uid={} error={}", u, e.getMessage());
+                }
+            }).start();
+        }
     }
 
     public void clear(String uid) {
         sessions.remove(uid);
+        if (store != null) {
+            try {
+                store.clearChatMessages(uid);
+            } catch (Exception e) {
+                log.warn("清空 DB 聊天历史失败 uid={} error={}", uid, e.getMessage());
+            }
+        }
     }
 
     // ============================================================

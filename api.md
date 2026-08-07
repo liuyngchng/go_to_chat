@@ -27,7 +27,7 @@ curl -X POST <HOST>/api/login \
 ```
 
 ```json
-{"status":"ok","token":"eyJ...","user":{"uid":1,"user_name":"admin","role":1,"note":"内置管理员"}}
+{"status":"ok","token":"eyJ...","user_name":"admin","role":1}
 ```
 
 ### 登出
@@ -52,7 +52,7 @@ curl <HOST>/api/me -H "Authorization: Bearer <TOKEN>"
 ```
 
 ```json
-{"data":{"uid":1,"user_name":"admin","role":1,"note":""}}
+{"user_name":"admin","role":1}
 ```
 
 ### 查询在线座席
@@ -64,28 +64,14 @@ curl <HOST>/api/agents -H "Authorization: Bearer <TOKEN>"
 ```
 
 ```json
-{"data":[{"user_name":"person0","login_at":"2026-08-07T10:30:00Z"}]}
+{"agents":[{"user_name":"person0","login_time":"2026-08-07T10:30:00Z","note":"内置客服座席"}]}
 ```
 
 ---
 
 ## 2. 对话
 
-### 查询历史
-
-`GET /api/chat/history`
-
-```bash
-curl <HOST>/api/chat/history -H "Authorization: Bearer <TOKEN>"
-```
-
-```json
-{"data":[{"role":"user","content":"你好"},{"role":"assistant","content":"您好！请问有什么可以帮您？"}]}
-```
-
-> 每个用户按 `uid` 独立存储，最多保留最近 5 轮（10 条）。
-
-### 发送消息
+### 发送消息（SSE 流式）
 
 `POST /api/chat`
 
@@ -109,6 +95,46 @@ data: [DONE]                   ← 结束
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | msg | string | ✅ | 用户消息 |
+| uid | string |   | 会话标识；当 `api_auth=false` 时生效，可管理多会话 |
+
+> **UID 行为**：`api_auth=true` 时强制使用 token 解析的 uid；`api_auth=false` 时优先使用请求中的 `uid`，未传则 fallback 为 token uid。
+
+### 发送消息（同步/非流式）
+
+`POST /api/chat/sync`
+
+与流式接口共享同一套工作模式路由逻辑，返回 JSON 而非 SSE。
+
+```bash
+curl -X POST <HOST>/api/chat/sync \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"msg":"你好，请问营业时间？"}'
+```
+
+```json
+{"answer":"营业时间为周一至周五 8:00-18:00，周六 9:00-12:00。","source":"kb"}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| answer | string | 完整回复内容 |
+| source | string | 来源: `"faq"` / `"kb"` / `"csm"` / `"dynamic"` |
+| score | float | 仅 FAQ 匹配时返回，匹配分数 |
+
+### 查询历史
+
+`GET /api/chat/history`
+
+```bash
+curl <HOST>/api/chat/history -H "Authorization: Bearer <TOKEN>"
+```
+
+```json
+{"data":[{"role":"user","content":"你好"},{"role":"assistant","content":"您好！请问有什么可以帮您？"}]}
+```
+
+> 每个用户按 `uid` 独立存储，最多保留最近 5 轮（10 条）。服务重启后自动从数据库恢复。
 
 ### 清空会话
 
@@ -125,7 +151,45 @@ curl -X POST <HOST>/api/chat/clear \
 
 ---
 
-## 3. 管理配置
+## 3. 健康检查 & 服务信息
+
+### 健康检查
+
+`GET /health`
+
+免认证，用于负载均衡器和监控探活。
+
+```bash
+curl <HOST>/health
+```
+
+```json
+{"status":"ok"}
+```
+
+### 服务信息
+
+`GET /api/info`
+
+```bash
+curl <HOST>/api/info -H "Authorization: Bearer <TOKEN>"
+```
+
+```json
+{
+  "name": "对话机器人",
+  "version": "1.0.0",
+  "work_mode": 0,
+  "vector_backend": "local",
+  "store_backend": "sqlite",
+  "supported_file_types": ["txt", "md", "pdf", "docx", "xlsx"],
+  "api_auth_enabled": true
+}
+```
+
+---
+
+## 4. 管理配置
 
 ### 获取配置
 
@@ -139,7 +203,7 @@ curl <HOST>/api/config -H "Authorization: Bearer <TOKEN>"
 {
   "data": {
     "sys": {"name":"对话机器人","auth":"false","api_auth":"true","work_mode":0,"default_workflow_id":0},
-    "api": {"llm_api_uri":"https://...","llm_api_key":"sk-...","llm_model_name":"gpt-4"},
+    "api": {"llm_api_uri":"https://...","llm_api_key":"sk-...","llm_model_name":"gpt-4","embedding_api_uri":"...","embedding_api_key":"...","embedding_model_name":"...","rerank_api_uri":"...","rerank_api_key":"...","rerank_model_name":"..."},
     "prompt": {"chat_msg":"你是专业的对话机器人..."},
     "kb": {"chunk_size":300,"chunk_overlap":80,"top_k":3,"score_threshold":0.1,"rerank_enabled":false,"rerank_retrieve_n":15},
     "llm": {"temperature":0.7,"top_p":0.9,"max_tokens":2048},
@@ -150,7 +214,7 @@ curl <HOST>/api/config -H "Authorization: Bearer <TOKEN>"
 
 ### 更新配置
 
-`PUT /api/config`
+`PUT /api/config` ⚠️ 仅管理员
 
 ```bash
 curl -X PUT <HOST>/api/config \
@@ -174,7 +238,7 @@ curl -X PUT <HOST>/api/config \
 
 ### 测试模型连接
 
-`POST /api/config/test-models`
+`POST /api/config/test-models` ⚠️ 仅管理员
 
 ```bash
 curl -X POST <HOST>/api/config/test-models \
@@ -206,7 +270,7 @@ curl -X POST <HOST>/api/config/test-models \
 
 ---
 
-## 4. 管理知识库
+## 5. 管理知识库
 
 ### 查询我的知识库
 
@@ -217,7 +281,7 @@ curl <HOST>/api/vdb -H "Authorization: Bearer <TOKEN>"
 ```
 
 ```json
-{"data":[{"id":1,"name":"燃气知识库","uid":"admin","is_public":0,"is_default":1,"created_at":"..."}]}
+{"data":[{"id":1,"name":"燃气知识库","uid":"admin","is_public":false,"is_default":true,"create_time":"..."}]}
 ```
 
 ### 查询公共知识库
@@ -240,7 +304,7 @@ curl -X POST <HOST>/api/vdb \
 ```
 
 ```json
-{"data":{"id":3}}
+{"status":"ok","id":3}
 ```
 
 ### 删除知识库
@@ -290,23 +354,55 @@ curl -X POST <HOST>/api/vdb/1/upload \
 ```
 
 ```json
-{"data":{"id":1}}
+{"status":"ok","file":{"id":1}}
 ```
+
+支持格式: `txt`, `md`, `pdf`, `docx`, `xlsx`
 
 ### 搜索知识库
 
 `POST /api/vdb/search`
 
+支持三种搜索模式：
+
+**模式 1 — 搜索多个知识库**（推荐）：
+
 ```bash
 curl -X POST <HOST>/api/vdb/search \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"query":"燃气费怎么算","vdb_ids":[1]}'
+  -d '{"query":"燃气费怎么算","vdb_ids":[1,2]}'
+```
+
+**模式 2 — 搜索单个知识库**（兼容旧版）：
+
+```bash
+curl -X POST <HOST>/api/vdb/search \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"燃气费怎么算","vdb_id":1}'
+```
+
+**模式 3 — 不指定知识库，搜索所有可访问的**：
+
+```bash
+curl -X POST <HOST>/api/vdb/search \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"燃气费怎么算"}'
 ```
 
 ```json
-{"data":[{"id":"doc_1","content":"阶梯气价...","score":0.95,"source":"燃气价格表.txt","vdb_id":1}]}
+{"data":"[燃气知识库]\n阶梯气价...\n"}
 ```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| query | string | ✅ | 搜索关键词 |
+| vdb_ids | int[] |   | 多个知识库 ID，优先级最高 |
+| vdb_id | int |   | 单个知识库 ID（兼容旧版） |
+
+> 优先级: `vdb_ids` > `vdb_id` > 搜索所有可访问知识库（我的 + 公开）
 
 ### 查询处理进度
 
@@ -332,9 +428,35 @@ curl -X DELETE <HOST>/api/vdb/file/1 -H "Authorization: Bearer <TOKEN>"
 {"status":"ok"}
 ```
 
+### 下载文件
+
+`GET /api/vdb/file/:id/download`
+
+```bash
+curl <HOST>/api/vdb/file/1/download -H "Authorization: Bearer <TOKEN>" -o myfile.txt
+```
+
+> 仅文件上传者可下载。
+
+### 查询文件分块
+
+`GET /api/vdb/file/:id/chunks`
+
+查看文档被切分和向量化后的所有文本块。
+
+```bash
+curl <HOST>/api/vdb/file/1/chunks -H "Authorization: Bearer <TOKEN>"
+```
+
+```json
+{"data":[{"id":"faq.txt_chunk_0","content":"营业时间 周一至周五...","metadata":{"source":"/abs/path/to/faq.txt"},"score":0}]}
+```
+
+> 当前仅 `local` 向量后端支持，Milvus/Qdrant 返回空数组。
+
 ### 查询知识库绑定
 
-`GET /api/vdb/bindings`
+`GET /api/vdb/bindings` ⚠️ 仅管理员
 
 ```bash
 curl <HOST>/api/vdb/bindings -H "Authorization: Bearer <TOKEN>"
@@ -346,7 +468,7 @@ curl <HOST>/api/vdb/bindings -H "Authorization: Bearer <TOKEN>"
 
 ### 保存知识库绑定
 
-`PUT /api/vdb/bindings`
+`PUT /api/vdb/bindings` ⚠️ 仅管理员
 
 ```bash
 curl -X PUT <HOST>/api/vdb/bindings \
@@ -363,7 +485,7 @@ curl -X PUT <HOST>/api/vdb/bindings \
 
 ---
 
-## 5. 管理 FAQ
+## 6. 管理 FAQ
 
 ### 查询 FAQ 列表
 
@@ -385,6 +507,29 @@ curl <HOST>/api/faq -H "Authorization: Bearer <TOKEN>"
 }
 ```
 
+### FAQ 匹配
+
+`POST /api/faq/match`
+
+独立匹配接口，不经过 LLM，直接返回最匹配的 FAQ 答案。
+
+```bash
+curl -X POST <HOST>/api/faq/match \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"营业时间"}'
+```
+
+```json
+{"answer":"营业时间周一至周五 8:00-18:00","score":0.92,"matched":true}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| answer | string | 匹配到的答案，未匹配为空字符串 |
+| score | float | 余弦相似度分数 (0~1) |
+| matched | bool | 是否达到阈值匹配成功 |
+
 ### 下载 FAQ 模板
 
 `GET /api/faq/template`
@@ -395,7 +540,7 @@ curl <HOST>/api/faq/template -H "Authorization: Bearer <TOKEN>" -o faq_template.
 
 ### 创建 FAQ
 
-`POST /api/faq`
+`POST /api/faq` ⚠️ 仅管理员
 
 ```bash
 curl -X POST <HOST>/api/faq \
@@ -405,12 +550,12 @@ curl -X POST <HOST>/api/faq \
 ```
 
 ```json
-{"status":"ok","id":1}
+{"status":"ok"}
 ```
 
 ### 上传 FAQ 文件
 
-`POST /api/faq/upload`
+`POST /api/faq/upload` ⚠️ 仅管理员
 
 ```bash
 curl -X POST <HOST>/api/faq/upload \
@@ -419,12 +564,12 @@ curl -X POST <HOST>/api/faq/upload \
 ```
 
 ```json
-{"status":"ok","count":15}
+{"status":"ok","created":15,"total":15}
 ```
 
 ### 更新 FAQ
 
-`PUT /api/faq/:id`
+`PUT /api/faq/:id` ⚠️ 仅管理员
 
 ```bash
 curl -X PUT <HOST>/api/faq/1 \
@@ -439,7 +584,7 @@ curl -X PUT <HOST>/api/faq/1 \
 
 ### 删除 FAQ
 
-`DELETE /api/faq/:id`
+`DELETE /api/faq/:id` ⚠️ 仅管理员
 
 ```bash
 curl -X DELETE <HOST>/api/faq/1 -H "Authorization: Bearer <TOKEN>"
@@ -451,7 +596,7 @@ curl -X DELETE <HOST>/api/faq/1 -H "Authorization: Bearer <TOKEN>"
 
 ### 清空 FAQ
 
-`DELETE /api/faq`
+`DELETE /api/faq` ⚠️ 仅管理员
 
 ```bash
 curl -X DELETE <HOST>/api/faq -H "Authorization: Bearer <TOKEN>"
@@ -463,11 +608,11 @@ curl -X DELETE <HOST>/api/faq -H "Authorization: Bearer <TOKEN>"
 
 ---
 
-## 6. 管理用户
+## 7. 管理用户
 
 ### 查询用户列表
 
-`GET /api/users`
+`GET /api/users` ⚠️ 仅管理员
 
 ```bash
 curl <HOST>/api/users -H "Authorization: Bearer <TOKEN>"
@@ -479,13 +624,13 @@ curl <HOST>/api/users -H "Authorization: Bearer <TOKEN>"
 
 ### 创建用户
 
-`POST /api/users`
+`POST /api/users` ⚠️ 仅管理员
 
 ```bash
 curl -X POST <HOST>/api/users \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"user_name":"new_user","password":"123456","role":0,"note":""}'
+  -d '{"user_name":"new_user","user_pwd":"123456","role":0,"note":""}'
 ```
 
 ```json
@@ -501,7 +646,7 @@ curl -X POST <HOST>/api/users \
 
 ### 删除用户
 
-`DELETE /api/users/:name`
+`DELETE /api/users/:name` ⚠️ 仅管理员
 
 ```bash
 curl -X DELETE <HOST>/api/users/new_user -H "Authorization: Bearer <TOKEN>"
@@ -513,19 +658,22 @@ curl -X DELETE <HOST>/api/users/new_user -H "Authorization: Bearer <TOKEN>"
 
 ### 重置密码
 
-`PUT /api/users/:name/reset-pwd`
+`PUT /api/users/:name/reset-pwd` ⚠️ 仅管理员
 
 ```bash
-curl -X PUT <HOST>/api/users/admin/reset-pwd -H "Authorization: Bearer <TOKEN>"
+curl -X PUT <HOST>/api/users/admin/reset-pwd \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"user_pwd":"admin"}'
 ```
 
 ```json
-{"status":"ok","new_password":"admin"}
+{"status":"ok"}
 ```
 
 ---
 
-## 7. 用户自助
+## 8. 用户自助
 
 ### 修改密码
 
@@ -551,7 +699,7 @@ curl <HOST>/api/user/tokens -H "Authorization: Bearer <TOKEN>"
 ```
 
 ```json
-{"data":[{"id":1,"token_preview":"eyJ...XXX","expires_at":"2026-09-06T...","created_at":"..."}]}
+{"data":[{"id":1,"token_preview":"eyJ...XXX","expires_at":"2026-09-06T...","create_time":"..."}]}
 ```
 
 ### 生成 Token
@@ -560,13 +708,11 @@ curl <HOST>/api/user/tokens -H "Authorization: Bearer <TOKEN>"
 
 ```bash
 curl -X POST <HOST>/api/user/token \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"hours":720}'
+  -H "Authorization: Bearer <TOKEN>"
 ```
 
 ```json
-{"token":"eyJhbGciOi...","token_preview":"eyJhbG...xxx","expires_at":"2026-09-06T10:00:00Z"}
+{"status":"ok","token":"eyJhbGciOi...","expires_at":"2026-09-06T10:00:00Z"}
 ```
 
 ### 查询调用日志
@@ -583,19 +729,9 @@ curl <HOST>/api/user/call-logs -H "Authorization: Bearer <TOKEN>"
 
 ---
 
-## 8. 管理 Agent
+## 9. 管理 Agent
 
-### 查询公开 Agent
-
-`GET /api/ai-agents/public`
-
-```bash
-curl <HOST>/api/ai-agents/public -H "Authorization: Bearer <TOKEN>"
-```
-
-```json
-{"data":[{"id":1,"name":"通用客服","description":"默认智能体","model_name":"gpt-4"}]}
-```
+> 所有认证用户均可读写 Agent。
 
 ### 查询全部 Agent
 
@@ -604,6 +740,24 @@ curl <HOST>/api/ai-agents/public -H "Authorization: Bearer <TOKEN>"
 ```bash
 curl <HOST>/api/ai-agents -H "Authorization: Bearer <TOKEN>"
 ```
+
+```json
+{"data":[{"id":1,"name":"通用客服","description":"默认智能体","system_prompt":"你是专业的对话机器人...","model_name":"gpt-4","vdb_ids":"[1,2]","created_at":"...","updated_at":"..."}]}
+```
+
+### 查询公开 Agent 列表
+
+`GET /api/ai-agents/public`
+
+```bash
+curl <HOST>/api/ai-agents/public -H "Authorization: Bearer <TOKEN>"
+```
+
+```json
+{"data":[{"id":1,"name":"通用客服"}]}
+```
+
+> 仅返回 `id` + `name`，供聊天页下拉选择用。
 
 ### 创建 Agent
 
@@ -637,6 +791,10 @@ curl -X POST <HOST>/api/ai-agents \
 curl <HOST>/api/ai-agents/1 -H "Authorization: Bearer <TOKEN>"
 ```
 
+```json
+{"data":{"id":1,"name":"通用客服","description":"...","system_prompt":"...","model_name":"gpt-4","vdb_ids":"[1,2]","created_at":"...","updated_at":"..."}}
+```
+
 ### 更新 Agent
 
 `PUT /api/ai-agents/:id`
@@ -666,9 +824,11 @@ curl -X DELETE <HOST>/api/ai-agents/2 -H "Authorization: Bearer <TOKEN>"
 
 ---
 
-## 9. 管理工作流
+## 10. 管理工作流
 
-### 查询公开工作流
+> 读取（列表/详情）：所有认证用户可访问。创建/更新/删除：仅管理员。
+
+### 查询公开工作流列表
 
 `GET /api/workflows`
 
@@ -677,12 +837,26 @@ curl <HOST>/api/workflows -H "Authorization: Bearer <TOKEN>"
 ```
 
 ```json
-{"data":[{"id":1,"name":"燃气客服工作流","description":"处理燃气客服咨询"}]}
+{"data":[{"id":1,"name":"燃气客服工作流","description":"处理燃气客服咨询","classifier":{...},"nodes":[...]}]}
+```
+
+### 查询工作流详情
+
+`GET /api/workflows/:id`
+
+所有认证用户均可查看详情（含节点、分类器配置）。
+
+```bash
+curl <HOST>/api/workflows/1 -H "Authorization: Bearer <TOKEN>"
+```
+
+```json
+{"data":{"id":1,"name":"燃气客服工作流","description":"...","classifier":{...},"nodes":[...]}}
 ```
 
 ### 创建工作流
 
-`POST /api/workflows`
+`POST /api/workflows` ⚠️ 仅管理员
 
 ```bash
 curl -X POST <HOST>/api/workflows \
@@ -703,11 +877,8 @@ curl -X POST <HOST>/api/workflows \
       ]
     },
     "nodes":[
-      {"id":"classify","type":"classify","agent_id":0,"next":["bill","busi","repair","faq"]},
-      {"id":"bill","type":"agent","agent_id":1,"next":[],"condition":"billing","final":true},
-      {"id":"busi","type":"agent","agent_id":1,"next":[],"condition":"business","final":true},
-      {"id":"repair","type":"agent","agent_id":1,"next":[],"condition":"repair","final":true},
-      {"id":"faq","type":"agent","agent_id":1,"next":[],"final":true}
+      {"id":"bill","agent_id":1,"input_template":"{{sys.user_query}}","output_var":"bill_result","condition":"billing","is_final":true},
+      {"id":"faq","agent_id":1,"input_template":"{{sys.user_query}}","output_var":"faq_result","is_final":true}
     ]
   }'
 ```
@@ -716,17 +887,9 @@ curl -X POST <HOST>/api/workflows \
 {"status":"ok","id":1}
 ```
 
-### 查询工作流详情
-
-`GET /api/workflows/:id`
-
-```bash
-curl <HOST>/api/workflows/1 -H "Authorization: Bearer <TOKEN>"
-```
-
 ### 更新工作流
 
-`PUT /api/workflows/:id`
+`PUT /api/workflows/:id` ⚠️ 仅管理员
 
 ```bash
 curl -X PUT <HOST>/api/workflows/1 \
@@ -741,7 +904,7 @@ curl -X PUT <HOST>/api/workflows/1 \
 
 ### 删除工作流
 
-`DELETE /api/workflows/:id`
+`DELETE /api/workflows/:id` ⚠️ 仅管理员
 
 ```bash
 curl -X DELETE <HOST>/api/workflows/2 -H "Authorization: Bearer <TOKEN>"
@@ -753,9 +916,11 @@ curl -X DELETE <HOST>/api/workflows/2 -H "Authorization: Bearer <TOKEN>"
 
 ---
 
-## 10. 测试意图分类
+## 11. 测试意图分类
 
 `POST /api/classifier/test`
+
+所有认证用户可用。
 
 ```bash
 curl -X POST <HOST>/api/classifier/test \
@@ -777,9 +942,14 @@ curl -X POST <HOST>/api/classifier/test \
 }
 ```
 
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| workflow_id | int | ✅ | 工作流 ID |
+| text | string | ✅ | 待分类的用户输入 |
+
 ---
 
-## 11. 查询系统变量
+## 12. 查询系统变量
 
 `GET /api/system-vars`
 
@@ -806,12 +976,19 @@ curl <HOST>/api/system-vars -H "Authorization: Bearer <TOKEN>"
 
 ### 角色
 
-| role | 说明 |
-|------|------|
-| 0 | 普通用户 |
-| 1 | 管理员 |
-| 2 | 客服座席 |
-| 3 | API 用户 |
+| role | 说明 | 权限概述 |
+|------|------|---------|
+| 0 | 普通用户 | 聊天、查看知识库、查看 FAQ、查看工作流/Agent |
+| 1 | 管理员 | 全部权限：配置管理、用户管理、FAQ/工作流/Agent 写操作 |
+| 2 | 客服座席 | 同普通用户 + 座席在线状态 |
+| 3 | API 用户 | 同普通用户，适合第三方程序调用 |
+
+### 认证行为
+
+| api_auth | 行为 |
+|----------|------|
+| `true` | 所有 `/api/*` 路由需携带 `Authorization: Bearer <TOKEN>` |
+| `false` | `/api/*` 可免 token 访问；聊天接口支持通过 `uid` 字段管理多会话 |
 
 ### 工作模式
 
@@ -820,6 +997,67 @@ curl <HOST>/api/system-vars -H "Authorization: Bearer <TOKEN>"
 | 0 | FAQ 匹配 → 知识库检索 → LLM |
 | 1 | 意图分类 → 按意图路由 → 检索(可选) → LLM |
 | 2 | 从 `workflow_def` 表加载 DAG 配置执行 |
+
+### API 端点速查
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/health` | 免认证 | 健康检查 |
+| POST | `/api/login` | 免认证 | 登录 |
+| POST | `/api/logout` | 免认证 | 登出 |
+| GET | `/api/me` | 认证 | 当前用户信息 |
+| GET | `/api/agents` | 认证 | 在线座席 |
+| POST | `/api/chat` | 认证 | SSE 流式聊天 |
+| POST | `/api/chat/sync` | 认证 | 同步聊天 |
+| GET | `/api/chat/history` | 认证 | 聊天历史 |
+| POST | `/api/chat/clear` | 认证 | 清空会话 |
+| GET | `/api/info` | 认证 | 服务信息 |
+| GET | `/api/config` | 认证 | 读取配置 |
+| PUT | `/api/config` | 管理员 | 更新配置 |
+| POST | `/api/config/test-models` | 管理员 | 测试模型连接 |
+| GET | `/api/vdb` | 认证 | 我的知识库 |
+| GET | `/api/vdb/pub` | 认证 | 公开知识库 |
+| POST | `/api/vdb` | 认证 | 创建知识库 |
+| DELETE | `/api/vdb/:id` | 认证 | 删除知识库 |
+| PUT | `/api/vdb/:id/default` | 认证 | 设为默认 |
+| GET | `/api/vdb/:id/files` | 认证 | 文件列表 |
+| POST | `/api/vdb/:id/upload` | 认证 | 上传文件 |
+| POST | `/api/vdb/search` | 认证 | 搜索知识库 |
+| GET | `/api/vdb/file/:id/progress` | 认证 | 处理进度 |
+| GET | `/api/vdb/file/:id/chunks` | 认证 | 文件分块 |
+| GET | `/api/vdb/file/:id/download` | 认证 | 下载文件 |
+| DELETE | `/api/vdb/file/:id` | 认证 | 删除文件 |
+| GET | `/api/vdb/bindings` | 管理员 | CSM 绑定 |
+| PUT | `/api/vdb/bindings` | 管理员 | 保存 CSM 绑定 |
+| GET | `/api/faq` | 认证 | FAQ 列表 |
+| POST | `/api/faq/match` | 认证 | FAQ 匹配 |
+| GET | `/api/faq/template` | 认证 | FAQ 模板 |
+| POST | `/api/faq` | 管理员 | 创建 FAQ |
+| POST | `/api/faq/upload` | 管理员 | 上传 FAQ |
+| PUT | `/api/faq/:id` | 管理员 | 更新 FAQ |
+| DELETE | `/api/faq/:id` | 管理员 | 删除 FAQ |
+| DELETE | `/api/faq` | 管理员 | 清空 FAQ |
+| GET | `/api/users` | 管理员 | 用户列表 |
+| POST | `/api/users` | 管理员 | 创建用户 |
+| DELETE | `/api/users/:name` | 管理员 | 删除用户 |
+| PUT | `/api/users/:name/reset-pwd` | 管理员 | 重置密码 |
+| PUT | `/api/user/password` | 认证 | 修改密码 |
+| GET | `/api/user/tokens` | 认证 | 我的 Token |
+| POST | `/api/user/token` | 认证 | 生成 Token |
+| GET | `/api/user/call-logs` | 认证 | 调用日志 |
+| GET | `/api/ai-agents` | 认证 | Agent 列表 |
+| GET | `/api/ai-agents/public` | 认证 | Agent 公开列表 |
+| POST | `/api/ai-agents` | 认证 | 创建 Agent |
+| GET | `/api/ai-agents/:id` | 认证 | Agent 详情 |
+| PUT | `/api/ai-agents/:id` | 认证 | 更新 Agent |
+| DELETE | `/api/ai-agents/:id` | 认证 | 删除 Agent |
+| GET | `/api/workflows` | 认证 | 工作流列表 |
+| GET | `/api/workflows/:id` | 认证 | 工作流详情 |
+| POST | `/api/workflows` | 管理员 | 创建工作流 |
+| PUT | `/api/workflows/:id` | 管理员 | 更新工作流 |
+| DELETE | `/api/workflows/:id` | 管理员 | 删除工作流 |
+| POST | `/api/classifier/test` | 认证 | 测试意图分类 |
+| GET | `/api/system-vars` | 认证 | 系统变量 |
 
 ### 通用 curl 模板
 
@@ -842,5 +1080,5 @@ curl -X POST <HOST>/api/<path> \
 TOKEN=$(curl -s <HOST>/api/login \
   -H "Content-Type: application/json" \
   -d '{"user_name":"admin","password":"admin"}' \
-  | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 ```

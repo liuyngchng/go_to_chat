@@ -235,6 +235,33 @@ func (m *Manager) GetFiles(vdbID int64) ([]model.VdbFileInfo, error) {
 	return m.store.GetFilesByVdbID(vdbID)
 }
 
+// GetFileChunks 获取文件的所有 chunk（从向量数据库中按 source 查询）
+func (m *Manager) GetFileChunks(fileID int64) ([]model.SearchResult, error) {
+	finfo, err := m.store.GetFileByID(fileID)
+	if err != nil {
+		return nil, fmt.Errorf("获取文件信息失败: %w", err)
+	}
+	if finfo == nil {
+		return nil, fmt.Errorf("文件不存在")
+	}
+
+	vs, err := m.getOrCreateStore(finfo.VdbID)
+	if err != nil {
+		return nil, fmt.Errorf("获取向量存储失败: %w", err)
+	}
+
+	absPath, err := filepath.Abs(finfo.FilePath)
+	if err != nil {
+		absPath = finfo.FilePath
+	}
+
+	chunks, err := vs.ListBySource(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("查询 chunks 失败: %w", err)
+	}
+	return chunks, nil
+}
+
 // DeleteFile 删除文件
 func (m *Manager) DeleteFile(fileID int64, uid string) error {
 	finfo, err := m.store.GetFileByID(fileID)
@@ -326,6 +353,29 @@ func (m *Manager) SearchInKB(query string, vdbID int64, uid string, topK int, sc
 	}
 
 	return sb.String(), nil
+}
+
+// SearchInKBs 在指定的多个知识库中检索
+func (m *Manager) SearchInKBs(query string, vdbIDs []int64, uid string, topK int, scoreThreshold float64) (string, error) {
+	var allContext strings.Builder
+	for _, vdbID := range vdbIDs {
+		ctx, err := m.SearchInKB(query, vdbID, uid, topK, scoreThreshold)
+		if err != nil {
+			slog.Error("搜索知识库失败", "vdbID", vdbID, "error", err)
+			continue
+		}
+		if ctx != "" {
+			// 获取知识库名称
+			vdbInfo, _ := m.store.GetVdbByID(vdbID)
+			kbName := fmt.Sprintf("KB_%d", vdbID)
+			if vdbInfo != nil {
+				kbName = vdbInfo.Name
+			}
+			allContext.WriteString(fmt.Sprintf("[%s]\n", kbName))
+			allContext.WriteString(ctx)
+		}
+	}
+	return allContext.String(), nil
 }
 
 // SearchAllKBs 在用户所有知识库中检索

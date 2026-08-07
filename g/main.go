@@ -77,8 +77,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 初始化会话管理器
-	sessionMgr := session.NewManager()
+	// 初始化会话管理器（TODO: 后续迁移至 Redis 替代 SQLite 持久化）
+	sessionMgr := session.NewManager(metaStore)
 
 	// 初始化知识库管理器
 	kbManager := kb.NewManager(cfg, metaStore)
@@ -116,6 +116,9 @@ func main() {
 	r.StaticFS("/static", http.FS(staticFS))
 
 	// 免认证路由
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
 	r.GET("/login", h.Auth.LoginPage)
 
 	// 认证 API（JSON）
@@ -137,6 +140,7 @@ func main() {
 	{
 		// 聊天
 		authAPI.POST("/chat", h.Chat.Chat)
+		authAPI.POST("/chat/sync", h.Chat.ChatSync)
 		authAPI.GET("/chat/history", h.Chat.History)
 		authAPI.POST("/chat/clear", h.Chat.Clear)
 
@@ -146,20 +150,30 @@ func main() {
 		// FAQ（所有认证用户可读）
 		authAPI.GET("/faq", h.Faq.List)
 		authAPI.GET("/faq/template", h.Faq.Template)
+		authAPI.POST("/faq/match", h.Faq.Match)
 		// 当前用户信息
 		authAPI.GET("/me", h.Auth.Me)
 
-		// AI Agent 公开列表（聊天页下拉选择用）
+		// AI Agent（所有认证用户可读写）
+		authAPI.GET("/ai-agents", h.Agent.List)
 		authAPI.GET("/ai-agents/public", h.Agent.ListPublic)
+		authAPI.POST("/ai-agents", h.Agent.Create)
+		authAPI.GET("/ai-agents/:id", h.Agent.Get)
+		authAPI.PUT("/ai-agents/:id", h.Agent.Update)
+		authAPI.DELETE("/ai-agents/:id", h.Agent.Delete)
 
 		// 系统变量列表（供创建 Agent 时参考可用变量）
 		authAPI.GET("/system-vars", h.Agent.ListSystemVars)
 
-		// 工作流公开列表（聊天页下拉选择用）
+		// 工作流（所有认证用户可读，写操作需管理员）
 		authAPI.GET("/workflows", h.Workflow.ListPublic)
+		authAPI.GET("/workflows/:id", h.Workflow.Get)
 
 		// 系统配置（读取）
 		authAPI.GET("/config", h.Config.GetConfig)
+
+		// 服务信息
+		authAPI.GET("/info", h.Config.Info)
 
 		// 知识库（VDB）
 		authAPI.GET("/vdb", h.Vdb.MyList)
@@ -171,7 +185,12 @@ func main() {
 		authAPI.POST("/vdb/:id/upload", h.Vdb.Upload)
 		authAPI.POST("/vdb/search", h.Vdb.Search)
 		authAPI.GET("/vdb/file/:id/progress", h.Vdb.ProcessInfo)
+		authAPI.GET("/vdb/file/:id/chunks", h.Vdb.Chunks)
+		authAPI.GET("/vdb/file/:id/download", h.Vdb.Download)
 		authAPI.DELETE("/vdb/file/:id", h.Vdb.FileDelete)
+
+		// 意图分类测试（所有认证用户可用）
+		authAPI.POST("/classifier/test", h.Chat.TestClassifier)
 	}
 
 	// 管理员专属页面路由
@@ -197,7 +216,7 @@ func main() {
 		adminAPI.GET("/vdb/bindings", h.Vdb.BindingGet)
 		adminAPI.PUT("/vdb/bindings", h.Vdb.BindingPut)
 
-		// FAQ 管理
+		// FAQ 管理（写操作仅管理员）
 		adminAPI.POST("/faq", h.Faq.Create)
 		adminAPI.POST("/faq/upload", h.Faq.Upload)
 		adminAPI.PUT("/faq/:id", h.Faq.Update)
@@ -210,21 +229,10 @@ func main() {
 		adminAPI.DELETE("/users/:name", h.User.DeleteUser)
 		adminAPI.PUT("/users/:name/reset-pwd", h.User.ResetUserPwd)
 
-		// AI Agent 管理
-		adminAPI.GET("/ai-agents", h.Agent.List)
-		adminAPI.POST("/ai-agents", h.Agent.Create)
-		adminAPI.GET("/ai-agents/:id", h.Agent.Get)
-		adminAPI.PUT("/ai-agents/:id", h.Agent.Update)
-		adminAPI.DELETE("/ai-agents/:id", h.Agent.Delete)
-
-		// 工作流管理
+		// 工作流管理（写操作仅管理员）
 		adminAPI.POST("/workflows", h.Workflow.Create)
-		adminAPI.GET("/workflows/:id", h.Workflow.Get)
 		adminAPI.PUT("/workflows/:id", h.Workflow.Update)
 		adminAPI.DELETE("/workflows/:id", h.Workflow.Delete)
-
-		// 意图分类测试
-		adminAPI.POST("/classifier/test", h.Chat.TestClassifier)
 	}
 
 	// 用户自助 API（受 sys.api_auth 开关控制）

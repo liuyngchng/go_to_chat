@@ -217,6 +217,11 @@ func (s *MilvusStore) DeleteBySource(source string) error {
 	return s.cli.Delete(s.ctx, s.collectionName, "", expr)
 }
 
+// ListBySource 根据 source 列出所有 chunks（Milvus 暂不支持，待后续实现）
+func (s *MilvusStore) ListBySource(source string) ([]model.SearchResult, error) {
+	return nil, nil
+}
+
 // Purge 清空 collection 数据（通过重建实现）
 func (s *MilvusStore) Purge() error {
 	has, err := s.cli.HasCollection(s.ctx, s.collectionName)
