@@ -30,9 +30,8 @@ public class SessionManager {
     // 会话操作
     // ============================================================
 
-    public List<ChatMessage> getHistory(String uid, String sessionId) {
-        String key = uid + ":" + sessionId;
-        ChatHistory history = sessions.get(key);
+    public List<ChatMessage> getHistory(String uid) {
+        ChatHistory history = sessions.get(uid);
         if (history == null) {
             return Collections.emptyList();
         }
@@ -42,16 +41,14 @@ public class SessionManager {
         }
     }
 
-    public void addMessage(String uid, String sessionId, String role, String content) {
-        String key = uid + ":" + sessionId;
-        ChatHistory history = sessions.computeIfAbsent(key,
-                k -> new ChatHistory(sessionId, uid));
+    public void addMessage(String uid, String role, String content) {
+        ChatHistory history = sessions.computeIfAbsent(uid,
+                k -> new ChatHistory(uid));
 
         synchronized (history) {
             history.getMessages().add(new ChatMessage(role, content));
             history.setUpdatedAt(System.currentTimeMillis());
 
-            // 限制历史长度
             int maxMessages = MAX_HISTORY_ROUNDS * 2;
             if (history.getMessages().size() > maxMessages) {
                 int start = history.getMessages().size() - maxMessages;
@@ -60,9 +57,8 @@ public class SessionManager {
         }
     }
 
-    public void clear(String uid, String sessionId) {
-        String key = uid + ":" + sessionId;
-        sessions.remove(key);
+    public void clear(String uid) {
+        sessions.remove(uid);
     }
 
     // ============================================================

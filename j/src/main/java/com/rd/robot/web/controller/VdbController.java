@@ -1,6 +1,7 @@
 package com.rd.robot.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rd.robot.engine.CsmEngine;
 import com.rd.robot.knowledge.KnowledgeBaseManager;
 import com.rd.robot.model.*;
 import com.rd.robot.repository.MetaStore;
@@ -28,11 +29,13 @@ public class VdbController {
     private final Config cfg;
     private final KnowledgeBaseManager kbMgr;
     private final MetaStore store;
+    private final CsmEngine csmEngine;
 
-    public VdbController(Config cfg, KnowledgeBaseManager kbMgr, MetaStore store) {
+    public VdbController(Config cfg, KnowledgeBaseManager kbMgr, MetaStore store, CsmEngine csmEngine) {
         this.cfg = cfg;
         this.kbMgr = kbMgr;
         this.store = store;
+        this.csmEngine = csmEngine;
     }
 
     public void myList(ChannelHandlerContext ctx, FullHttpRequest req) {
@@ -303,6 +306,57 @@ public class VdbController {
         int endIdx = headers.indexOf(suffix, idx);
         if (endIdx < 0) return headers.substring(idx);
         return headers.substring(idx, endIdx);
+    }
+
+    // ============================================================
+    // CSM Business KB Bindings (admin only)
+    // ============================================================
+
+    /** GET /api/vdb/bindings — get current CSM branch KB bindings. */
+    public void bindingGet(ChannelHandlerContext ctx, FullHttpRequest req) {
+        Map<String, List<Long>> data = new LinkedHashMap<>();
+        data.put("billing", csmEngine.billingVdbIDs());
+        data.put("repair", csmEngine.repairVdbIDs());
+        data.put("faq", csmEngine.faqVdbIDs());
+        try {
+            HttpServer.sendJson(ctx, 200, MAPPER.writeValueAsString(Map.of("data", data)));
+        } catch (Exception e) {
+            HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR, "获取绑定失败");
+        }
+    }
+
+    /** PUT /api/vdb/bindings — save CSM branch KB bindings and hot-reload. */
+    public void bindingPut(ChannelHandlerContext ctx, FullHttpRequest req) {
+        try {
+            String body = req.content().toString(CharsetUtil.UTF_8);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payload = MAPPER.readValue(body, Map.class);
+
+            @SuppressWarnings("unchecked")
+            var billing = (List<Integer>) payload.get("billing");
+            @SuppressWarnings("unchecked")
+            var repair = (List<Integer>) payload.get("repair");
+            @SuppressWarnings("unchecked")
+            var faq = (List<Integer>) payload.get("faq");
+
+            if (billing != null) {
+                store.setConfig("csm.billing_vdb_ids", MAPPER.writeValueAsString(billing), "账单分支检索的知识库 id");
+            }
+            if (repair != null) {
+                store.setConfig("csm.repair_vdb_ids", MAPPER.writeValueAsString(repair), "维修分支检索的知识库 id");
+            }
+            if (faq != null) {
+                store.setConfig("csm.faq_vdb_ids", MAPPER.writeValueAsString(faq), "FAQ分支检索的知识库 id");
+            }
+
+            // Hot-reload to take effect immediately
+            csmEngine.reloadVdbBindings();
+
+            HttpServer.sendJson(ctx, 200, "{\"status\":\"ok\"}");
+        } catch (Exception e) {
+            log.error("保存知识库绑定失败", e);
+            HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR, "保存绑定失败: " + e.getMessage());
+        }
     }
 
     static class MultipartForm {

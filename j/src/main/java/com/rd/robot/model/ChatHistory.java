@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ChatHistory {
-    private String sessionId;
     private String uid;
     private List<ChatMessage> messages;
     private long createdAt;
@@ -14,16 +13,13 @@ public class ChatHistory {
         this.messages = new ArrayList<>();
     }
 
-    public ChatHistory(String sessionId, String uid) {
-        this.sessionId = sessionId;
+    public ChatHistory(String uid) {
         this.uid = uid;
         this.messages = new ArrayList<>();
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = this.createdAt;
     }
 
-    public String getSessionId() { return sessionId; }
-    public void setSessionId(String sessionId) { this.sessionId = sessionId; }
     public String getUid() { return uid; }
     public void setUid(String uid) { this.uid = uid; }
     public List<ChatMessage> getMessages() { return messages; }

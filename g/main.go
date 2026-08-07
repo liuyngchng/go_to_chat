@@ -137,6 +137,7 @@ func main() {
 	{
 		// 聊天
 		authAPI.POST("/chat", h.Chat.Chat)
+		authAPI.GET("/chat/history", h.Chat.History)
 		authAPI.POST("/chat/clear", h.Chat.Clear)
 
 		// 在线座席

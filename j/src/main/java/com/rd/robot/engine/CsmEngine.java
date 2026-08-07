@@ -1,5 +1,7 @@
 package com.rd.robot.engine;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rd.robot.client.ClientFactory;
 import com.rd.robot.client.EmbeddingClient;
 import com.rd.robot.client.LlmClient;
@@ -9,12 +11,16 @@ import com.rd.robot.model.ClassifierDef;
 import com.rd.robot.model.Config;
 import com.rd.robot.model.EngineEvent;
 import com.rd.robot.model.IntentCategory;
+import com.rd.robot.repository.MetaStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Hard-coded customer service Q&A logic (CSM = Customer Service Module).
@@ -37,12 +43,16 @@ public class CsmEngine {
 
     private static final Logger log = LoggerFactory.getLogger(CsmEngine.class);
 
-    /** Total steps in the hard-coded flow (0=intent classify, 1=retrieve, 2=answer).
-     *  Used for frontend progress display (EngineEvent.total). */
+    /** Total steps in the hard-coded flow (0=intent classify, 1=retrieve, 2=answer). */
     private static final int CSM_TOTAL_STEP = 3;
 
-    /** Hard-coded KB IDs used by billing/repair/faq retrieval. */
-    private static final List<Long> CSM_VDB_IDS = List.of(3L);
+    /** Default KB IDs when no binding is configured. */
+    private static final List<Long> DEFAULT_VDB_IDS = List.of(3L);
+
+    /** Config keys for CSM branch KB bindings. */
+    private static final String CFG_KEY_BILLING = "csm.billing_vdb_ids";
+    private static final String CFG_KEY_REPAIR = "csm.repair_vdb_ids";
+    private static final String CFG_KEY_FAQ = "csm.faq_vdb_ids";
 
     /** Hard-coded intent classifier config, identical to workflow 1's classifier. */
     private static final ClassifierDef CSM_CLASSIFIER = buildClassifier();
@@ -72,16 +82,27 @@ public class CsmEngine {
             "如营业时间、服务电话、地址、投诉渠道等。\n" +
             "语气亲切、专业，解答清晰明了。";
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private final Config cfg;
     private final KnowledgeBaseManager kbMgr;
     private final ClientFactory clientFactory;
     private final FastTextPredictor ftPredictor;
+    private final MetaStore store;
 
-    public CsmEngine(Config cfg, KnowledgeBaseManager kbMgr, ClientFactory clientFactory) {
+    // Dynamic KB bindings (loaded from sys_config, hot-reloadable)
+    private final ReadWriteLock bindingLock = new ReentrantReadWriteLock();
+    private List<Long> billingVdbIDs = DEFAULT_VDB_IDS;
+    private List<Long> repairVdbIDs = DEFAULT_VDB_IDS;
+    private List<Long> faqVdbIDs = DEFAULT_VDB_IDS;
+
+    public CsmEngine(Config cfg, KnowledgeBaseManager kbMgr, ClientFactory clientFactory, MetaStore store) {
         this.cfg = cfg;
         this.kbMgr = kbMgr;
         this.clientFactory = clientFactory;
+        this.store = store;
         this.ftPredictor = new FastTextPredictor();
+        loadVdbBindings();
     }
 
     /**
@@ -140,16 +161,16 @@ public class CsmEngine {
                 csmAnswerDirect(eventQueue, "紧急调度", CSM_EMERGENCY_PROMPT, userQuery);
                 break;
             case "billing":
-                csmAnswerWithKB(eventQueue, "账单检索", "账单客服", CSM_BILLING_PROMPT, userQuery, uid);
+                csmAnswerWithKB(eventQueue, "账单检索", "账单客服", CSM_BILLING_PROMPT, userQuery, uid, billingVdbIDsSnapshot());
                 break;
             case "business":
                 csmAnswerDirect(eventQueue, "业务办理", CSM_BUSINESS_PROMPT, userQuery);
                 break;
             case "repair":
-                csmAnswerWithKB(eventQueue, "维修检索", "维修客服", CSM_REPAIR_PROMPT, userQuery, uid);
+                csmAnswerWithKB(eventQueue, "维修检索", "维修客服", CSM_REPAIR_PROMPT, userQuery, uid, repairVdbIDsSnapshot());
                 break;
             default: // faq / unrecognized
-                csmAnswerWithKB(eventQueue, "FAQ检索", "综合FAQ", CSM_FAQ_PROMPT, userQuery, uid);
+                csmAnswerWithKB(eventQueue, "FAQ检索", "综合FAQ", CSM_FAQ_PROMPT, userQuery, uid, faqVdbIDsSnapshot());
                 break;
         }
 
@@ -180,10 +201,11 @@ public class CsmEngine {
     /** Search KB first, then answer based on retrieved context (billing / repair / faq). */
     private void csmAnswerWithKB(BlockingQueue<EngineEvent> eventQueue,
                                  String retrieveAgent, String answerAgent,
-                                 String systemPrompt, String userQuery, String uid) {
+                                 String systemPrompt, String userQuery, String uid,
+                                 List<Long> vdbIds) {
         eventQueue.offer(new EngineEvent("progress", 1, CSM_TOTAL_STEP, retrieveAgent, ""));
 
-        String kbContext = csmSearchKB(userQuery, uid);
+        String kbContext = csmSearchKB(userQuery, uid, vdbIds);
 
         // Matches workflow node InputTemplate "用户问题：{{user_query}}\n检索信息：{{xx_ctx}}"
         String userMessage = "用户问题：" + userQuery + "\n检索信息：" + kbContext;
@@ -192,13 +214,13 @@ public class CsmEngine {
         csmStream(eventQueue, answerAgent, systemPrompt, userMessage);
     }
 
-    /** Search the hard-coded KB list and join context. */
-    private String csmSearchKB(String userQuery, String uid) {
+    /** Search the given KB list and join context. */
+    private String csmSearchKB(String userQuery, String uid, List<Long> vdbIds) {
         long start = System.currentTimeMillis();
-        log.info("csm_kb_search_start vdb_ids={} query={}", CSM_VDB_IDS, truncate(userQuery, 80));
+        log.info("csm_kb_search_start vdb_ids={} query={}", vdbIds, truncate(userQuery, 80));
 
         StringBuilder sb = new StringBuilder();
-        for (long vdbId : CSM_VDB_IDS) {
+        for (long vdbId : vdbIds) {
             try {
                 String ctx = kbMgr.searchInKB(userQuery, vdbId, uid,
                         cfg.getKb().getTopK(), cfg.getKb().getScoreThreshold());
@@ -213,6 +235,67 @@ public class CsmEngine {
                 System.currentTimeMillis() - start, sb.length());
         return sb.toString();
     }
+
+    // ============================================================
+    // Dynamic KB Bindings (loaded from sys_config, hot-reloadable)
+    // ============================================================
+
+    /** Load KB bindings from sys_config. */
+    public void loadVdbBindings() {
+        bindingLock.writeLock().lock();
+        try {
+            billingVdbIDs = loadVdbIDs(CFG_KEY_BILLING);
+            repairVdbIDs = loadVdbIDs(CFG_KEY_REPAIR);
+            faqVdbIDs = loadVdbIDs(CFG_KEY_FAQ);
+            log.info("csm_vdb_bindings_loaded billing={} repair={} faq={}",
+                    billingVdbIDs, repairVdbIDs, faqVdbIDs);
+        } finally {
+            bindingLock.writeLock().unlock();
+        }
+    }
+
+    /** Reload bindings after config update (hot-reload, takes effect immediately). */
+    public void reloadVdbBindings() {
+        loadVdbBindings();
+    }
+
+    private List<Long> loadVdbIDs(String key) {
+        if (store == null) return DEFAULT_VDB_IDS;
+        try {
+            String val = store.getConfig(key);
+            if (val == null || val.trim().isEmpty()) return DEFAULT_VDB_IDS;
+            List<Long> ids = MAPPER.readValue(val, new TypeReference<List<Long>>() {});
+            if (ids == null || ids.isEmpty()) return DEFAULT_VDB_IDS;
+            return ids;
+        } catch (Exception e) {
+            log.warn("csm vdb binding parse failed, using defaults: key={} error={}", key, e.getMessage());
+            return DEFAULT_VDB_IDS;
+        }
+    }
+
+    private List<Long> billingVdbIDsSnapshot() {
+        bindingLock.readLock().lock();
+        try { return billingVdbIDs; } finally { bindingLock.readLock().unlock(); }
+    }
+
+    private List<Long> repairVdbIDsSnapshot() {
+        bindingLock.readLock().lock();
+        try { return repairVdbIDs; } finally { bindingLock.readLock().unlock(); }
+    }
+
+    private List<Long> faqVdbIDsSnapshot() {
+        bindingLock.readLock().lock();
+        try { return faqVdbIDs; } finally { bindingLock.readLock().unlock(); }
+    }
+
+    /** Return current billing branch KB IDs (for handler display). */
+    public List<Long> billingVdbIDs() { return billingVdbIDsSnapshot(); }
+
+    /** Return current repair branch KB IDs (for handler display). */
+    public List<Long> repairVdbIDs() { return repairVdbIDsSnapshot(); }
+
+    /** Return current FAQ branch KB IDs (for handler display). */
+    public List<Long> faqVdbIDs() { return faqVdbIDsSnapshot(); }
 
     /** Stream the LLM response, emitting chunk events; emits the final "done" after streaming ends. */
     private void csmStream(BlockingQueue<EngineEvent> eventQueue,

@@ -32,9 +32,8 @@ func NewManager() *Manager {
 }
 
 // GetHistory 获取会话历史
-func (m *Manager) GetHistory(uid, sessionID string) []model.ChatMessage {
-	key := uid + ":" + sessionID
-	v, ok := m.sessions.Load(key)
+func (m *Manager) GetHistory(uid string) []model.ChatMessage {
+	v, ok := m.sessions.Load(uid)
 	if !ok {
 		return nil
 	}
@@ -49,21 +48,17 @@ func (m *Manager) GetHistory(uid, sessionID string) []model.ChatMessage {
 }
 
 // AddMessage 添加消息到会话历史
-func (m *Manager) AddMessage(uid, sessionID, role, content string) {
-	key := uid + ":" + sessionID
-
+func (m *Manager) AddMessage(uid, role, content string) {
 	entry := &sessionEntry{
 		h: &model.ChatHistory{
-			SessionID: sessionID,
 			UID:       uid,
 			Messages:  make([]model.ChatMessage, 0),
 			CreatedAt: time.Now(),
 		},
 	}
 
-	actual, loaded := m.sessions.LoadOrStore(key, entry)
+	actual, loaded := m.sessions.LoadOrStore(uid, entry)
 	if loaded {
-		// 已存在，使用旧的 entry
 		entry = actual.(*sessionEntry)
 	}
 
@@ -76,7 +71,6 @@ func (m *Manager) AddMessage(uid, sessionID, role, content string) {
 	})
 	entry.h.UpdatedAt = time.Now()
 
-	// 限制历史长度（保留最近 N 轮）
 	maxMessages := MaxHistoryRounds * 2
 	if len(entry.h.Messages) > maxMessages {
 		entry.h.Messages = entry.h.Messages[len(entry.h.Messages)-maxMessages:]
@@ -84,9 +78,8 @@ func (m *Manager) AddMessage(uid, sessionID, role, content string) {
 }
 
 // Clear 清空会话历史
-func (m *Manager) Clear(uid, sessionID string) {
-	key := uid + ":" + sessionID
-	m.sessions.Delete(key)
+func (m *Manager) Clear(uid string) {
+	m.sessions.Delete(uid)
 }
 
 // FormatHistory 格式化历史消息为字符串

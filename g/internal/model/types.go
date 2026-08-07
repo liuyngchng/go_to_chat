@@ -156,7 +156,6 @@ type ChatMessage struct {
 type ChatRequest struct {
 	Msg       string `form:"msg" json:"msg" binding:"required"`
 	UID       string `form:"uid" json:"uid"`
-	SessionID string `form:"session_id" json:"session_id"`
 	AppSource string `form:"app_source" json:"app_source"`
 }
 
@@ -180,7 +179,6 @@ type VdbSearchRequest struct {
 
 // ChatHistory 会话历史
 type ChatHistory struct {
-	SessionID string        `json:"session_id"`
 	UID       string        `json:"uid"`
 	Messages  []ChatMessage `json:"messages"`
 	CreatedAt time.Time     `json:"created_at"`

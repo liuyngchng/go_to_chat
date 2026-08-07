@@ -84,6 +84,27 @@ public class PageController {
         }
     }
 
+    public void vdbBindIndex(ChannelHandlerContext ctx, FullHttpRequest request) {
+        if (requireAuth(ctx, request)) return;
+        int role = getUserRole(request);
+        if (role != User.ROLE_ADMIN) {
+            HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN, "仅管理员可访问");
+            return;
+        }
+        try {
+            String uid = getUid(request);
+            String token = getToken(request);
+
+            String html = loadTemplate("templates/vdb_bind.html")
+                    .replace("{{sys_name}}", cfg.getSys().getName())
+                    .replace("{{uid}}", uid)
+                    .replace("{{token}}", token != null ? token : "");
+            HttpServer.sendHtml(ctx, html);
+        } catch (Exception e) {
+            HttpServer.sendError(ctx, io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR, "页面加载失败");
+        }
+    }
+
     public void userApiIndex(ChannelHandlerContext ctx, FullHttpRequest request) {
         if (requireAuth(ctx, request)) return;
         try {

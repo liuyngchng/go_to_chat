@@ -57,7 +57,7 @@ public class Bootstrap {
         AuthController authController = new AuthController(metaStore);
         FaqController faqController = new FaqController(metaStore, clientFactory);
         ChatController chatController = new ChatController(cfg, kbManager, sessionMgr, metaStore, clientFactory, faqController);
-        VdbController vdbController = new VdbController(cfg, kbManager, metaStore);
+        VdbController vdbController = new VdbController(cfg, kbManager, metaStore, chatController.getCsmEngine());
         ConfigController configController = new ConfigController(cfg, metaStore, clientFactory);
         UserController userController = new UserController(metaStore);
         AgentController agentController = new AgentController(metaStore);
@@ -71,6 +71,7 @@ public class Bootstrap {
         router.addRoute("GET", "/", pageController::index);
         router.addRoute("GET", "/vdb/idx", pageController::vdbIndex);
         router.addRoute("GET", "/admin/config", pageController::configIndex);
+        router.addRoute("GET", "/admin/vdb/bind", pageController::vdbBindIndex);
         router.addRoute("GET", "/user/api", pageController::userApiIndex);
 
         // -- Auth API (JSON) --
@@ -81,6 +82,7 @@ public class Bootstrap {
 
         // -- Chat API --
         router.addRoute("POST", "/api/chat", chatController::chat);
+        router.addRoute("GET", "/api/chat/history", chatController::history);
         router.addRoute("POST", "/api/chat/clear", chatController::clear);
 
         // -- Config API --
@@ -99,6 +101,8 @@ public class Bootstrap {
         router.addRoute("POST", "/api/vdb/search", vdbController::search);
         router.addRoute("GET", "/api/vdb/file/:id/progress", vdbController::processInfo);
         router.addRoute("DELETE", "/api/vdb/file/:id", vdbController::fileDelete);
+        router.addRoute("GET", "/api/vdb/bindings", vdbController::bindingGet);
+        router.addRoute("PUT", "/api/vdb/bindings", vdbController::bindingPut);
 
         // -- FAQ API --
         router.addRoute("GET", "/api/faq", faqController::list);
