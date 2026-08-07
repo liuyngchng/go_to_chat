@@ -49,7 +49,9 @@ public class ConfigController {
             data.put("sys", _map(
                     "name", cfg.getSys().getName(),
                     "auth", cfg.getSys().isAuth() ? "true" : "false",
-                    "api_auth", cfg.getSys().isApiAuth() ? "true" : "false"));
+                    "api_auth", cfg.getSys().isApiAuth() ? "true" : "false",
+                    "work_mode", cfg.getSys().getWorkMode(),
+                    "default_workflow_id", cfg.getSys().getDefaultWorkflowId()));
             data.put("api", _map(
                     "llm_api_uri", cfg.getApi().getLlmApiUri(),
                     "llm_api_key", cfg.getApi().getLlmApiKey(),
@@ -120,6 +122,10 @@ public class ConfigController {
                     metaStore.setConfig("sys.name", (String) sys.get("name"), "系统名称");
                 // sys.auth is read-only from cfg.yml, not updateable via page
                 if (sys.get("api_auth") != null) metaStore.setConfig("sys.api_auth", (String) sys.get("api_auth"), "是否启用接口认证");
+                // 工作模式（始终保存）
+                if (sys.get("work_mode") != null) metaStore.setConfig("sys.work_mode", String.valueOf(sys.get("work_mode")), "工作模式: 0=KB, 1=CSM, 2=动态工作流");
+                // 动态工作流 ID
+                if (sys.get("default_workflow_id") != null) metaStore.setConfig("sys.default_workflow_id", String.valueOf(sys.get("default_workflow_id")), "动态工作流 ID");
             }
 
             if (api != null) {

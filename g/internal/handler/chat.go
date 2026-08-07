@@ -74,12 +74,19 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	// 如果指定了 workflow_id，走工作流引擎
-	if req.WorkflowID > 0 {
-		h.chatWithWorkflow(c, &req, uid, sessionID, flusher)
-		return
+	// 根据系统配置的工作模式决定聊天路径
+	switch h.cfg.Sys.WorkMode {
+	case model.WorkModeCSM:
+		h.chatWithCSMWorkflow(c, &req, uid, sessionID, flusher)
+	case model.WorkModeDynamic:
+		h.chatWithDynamicWorkflow(c, &req, uid, sessionID, flusher)
+	default:
+		h.chatWithKB(c, &req, uid, sessionID, flusher)
 	}
+}
 
+// chatWithKB 知识库问答模式（FAQ 匹配 → 知识库检索 → LLM 对话）
+func (h *ChatHandler) chatWithKB(c *gin.Context, req *model.ChatRequest, uid, sessionID string, flusher http.Flusher) {
 	// 获取历史
 	history := h.sessionMgr.GetHistory(uid, sessionID)
 	historyStr := session.FormatHistory(history)
@@ -154,8 +161,8 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	}
 }
 
-// chatWithWorkflow 通过工作流引擎处理聊天请求
-func (h *ChatHandler) chatWithWorkflow(c *gin.Context, req *model.ChatRequest, uid, sessionID string, flusher http.Flusher) {
+// chatWithCSMWorkflow CSM 硬编码工作流模式
+func (h *ChatHandler) chatWithCSMWorkflow(c *gin.Context, req *model.ChatRequest, uid, sessionID string, flusher http.Flusher) {
 	// 获取历史
 	history := h.sessionMgr.GetHistory(uid, sessionID)
 	historyMsgs := make([]engine.ChatMsg, len(history))
@@ -166,18 +173,13 @@ func (h *ChatHandler) chatWithWorkflow(c *gin.Context, req *model.ChatRequest, u
 	// 保存用户消息
 	h.sessionMgr.AddMessage(uid, sessionID, "user", req.Msg)
 
-	slog.Info("workflow-chat", "uid", uid, "session", sessionID, "workflow", req.WorkflowID, "query", req.Msg[:min(50, len(req.Msg))])
+	slog.Info("workflow-chat-csm", "uid", uid, "session", sessionID, "query", req.Msg[:min(50, len(req.Msg))])
 
 	// 先发送初始事件
 	fmt.Fprintf(c.Writer, "data: \n\n")
 	flusher.Flush()
 
-	// 执行工作流
-	//
-	// 【CSM 硬编码模式】直接走 csm.go 写死的客服问答逻辑（分类→路由→检索→回答），
-	// 不再从数据库加载工作流配置。若需恢复动态配置，放开下面这行、注释掉 ExecuteStreamCSM：
-	// eventCh := h.engine.ExecuteStream(req.WorkflowID, req.Msg, uid, historyMsgs)
-	eventCh := h.engine.ExecuteStreamCSM(req.WorkflowID, req.Msg, uid, historyMsgs)
+	eventCh := h.engine.ExecuteStreamCSM(0, req.Msg, uid, historyMsgs)
 
 	var fullResponse strings.Builder
 	for evt := range eventCh {
@@ -195,6 +197,57 @@ func (h *ChatHandler) chatWithWorkflow(c *gin.Context, req *model.ChatRequest, u
 			flusher.Flush()
 		case "done":
 			// 正常结束
+		}
+	}
+
+	// 发送结束标记
+	fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+	flusher.Flush()
+
+	// 保存助手回复
+	responseText := fullResponse.String()
+	if responseText != "" {
+		h.sessionMgr.AddMessage(uid, sessionID, "assistant", responseText)
+	}
+}
+
+// chatWithDynamicWorkflow 动态加载数据库工作流配置模式
+func (h *ChatHandler) chatWithDynamicWorkflow(c *gin.Context, req *model.ChatRequest, uid, sessionID string, flusher http.Flusher) {
+	// 获取历史
+	history := h.sessionMgr.GetHistory(uid, sessionID)
+	historyMsgs := make([]engine.ChatMsg, len(history))
+	for i, msg := range history {
+		historyMsgs[i] = engine.ChatMsg{Role: msg.Role, Content: msg.Content}
+	}
+
+	// 保存用户消息
+	h.sessionMgr.AddMessage(uid, sessionID, "user", req.Msg)
+
+	workflowID := h.cfg.Sys.DefaultWorkflowID
+	slog.Info("workflow-chat-dynamic", "uid", uid, "session", sessionID, "workflow", workflowID, "query", req.Msg[:min(50, len(req.Msg))])
+
+	// 先发送初始事件
+	fmt.Fprintf(c.Writer, "data: \n\n")
+	flusher.Flush()
+
+	// 从数据库加载工作流配置并执行
+	eventCh := h.engine.ExecuteStream(workflowID, req.Msg, uid, historyMsgs)
+
+	var fullResponse strings.Builder
+	for evt := range eventCh {
+		switch evt.Type {
+		case "progress":
+			fmt.Fprintf(c.Writer, "data: [步骤 %d/%d] %s\n\n", evt.Step, evt.Total, evt.Agent)
+			flusher.Flush()
+		case "chunk":
+			fullResponse.WriteString(evt.Content)
+			fmt.Fprintf(c.Writer, "data: %s\n\n", evt.Content)
+			flusher.Flush()
+		case "error":
+			slog.Error("workflow error", "error", evt.Content)
+			fmt.Fprintf(c.Writer, "data: [错误] %s\n\n", evt.Content)
+			flusher.Flush()
+		case "done":
 		}
 	}
 

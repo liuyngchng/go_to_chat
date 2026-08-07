@@ -60,11 +60,20 @@ type ServerConfig struct {
 	Debug bool `yaml:"debug"`
 }
 
+// 工作模式枚举
+const (
+	WorkModeKB      = 0 // 知识库问答（FAQ + 检索 + LLM）
+	WorkModeCSM     = 1 // CSM 硬编码工作流
+	WorkModeDynamic = 2 // 动态加载数据库工作流配置
+)
+
 // SysConfig 系统配置
 type SysConfig struct {
-	Name    string `yaml:"name"`
-	Auth    bool   `yaml:"auth"`
-	ApiAuth bool   `yaml:"api_auth"`
+	Name              string `yaml:"name"`
+	Auth              bool   `yaml:"auth"`
+	ApiAuth           bool   `yaml:"api_auth"`
+	WorkMode          int    `json:"work_mode"`           // 工作模式: 0=KB, 1=CSM, 2=动态工作流
+	DefaultWorkflowID int64  `json:"default_workflow_id"` // 动态工作流模式下使用的工作流 ID
 }
 
 // APIConfig API 配置
@@ -145,11 +154,10 @@ type ChatMessage struct {
 
 // ChatRequest 聊天请求
 type ChatRequest struct {
-	Msg        string `form:"msg" json:"msg" binding:"required"`
-	UID        string `form:"uid" json:"uid"`
-	SessionID  string `form:"session_id" json:"session_id"`
-	AppSource  string `form:"app_source" json:"app_source"`
-	WorkflowID int64  `form:"workflow_id" json:"workflow_id"` // 可选，0=默认模式
+	Msg       string `form:"msg" json:"msg" binding:"required"`
+	UID       string `form:"uid" json:"uid"`
+	SessionID string `form:"session_id" json:"session_id"`
+	AppSource string `form:"app_source" json:"app_source"`
 }
 
 // LoginRequest 登录请求

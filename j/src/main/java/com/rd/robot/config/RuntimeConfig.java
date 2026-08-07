@@ -48,6 +48,12 @@ public class RuntimeConfig {
         if (configs.containsKey("sys.api_auth")) {
             cfg.getSys().setApiAuth("true".equals(configs.get("sys.api_auth")));
         }
+        if (configs.containsKey("sys.work_mode")) {
+            cfg.getSys().setWorkMode(parseInt(configs.get("sys.work_mode"), 0));
+        }
+        if (configs.containsKey("sys.default_workflow_id")) {
+            cfg.getSys().setDefaultWorkflowId(parseLong(configs.get("sys.default_workflow_id"), 0));
+        }
         if (cfg.getApi() == null) {
             cfg.setApi(new APIConfig());
         }
@@ -131,6 +137,10 @@ public class RuntimeConfig {
 
     private static int parseInt(String s, int defaultValue) {
         try { return Integer.parseInt(s); } catch (NumberFormatException e) { return defaultValue; }
+    }
+
+    private static long parseLong(String s, long defaultValue) {
+        try { return Long.parseLong(s); } catch (NumberFormatException e) { return defaultValue; }
     }
 
     private static double parseDouble(String s, double defaultValue) {

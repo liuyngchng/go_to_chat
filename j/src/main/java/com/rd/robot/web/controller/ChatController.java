@@ -86,91 +86,18 @@ public class ChatController {
                     .set("X-Accel-Buffering", "no");
             ctx.writeAndFlush(initResponse);
 
-            // If workflow_id is specified, use workflow engine
-            if (req.getWorkflowId() > 0) {
-                chatWithWorkflow(ctx, req, uid, sessionId);
-                return;
+            // Route by work mode
+            switch (cfg.getSys().getWorkMode()) {
+                case 1: // CSM
+                    chatWithCSMWorkflow(ctx, req, uid, sessionId);
+                    return;
+                case 2: // Dynamic
+                    chatWithDynamicWorkflow(ctx, req, uid, sessionId);
+                    return;
+                default: // KB
+                    chatWithKB(ctx, req, uid, sessionId);
+                    return;
             }
-
-            // Get history
-            List<ChatMessage> history = sessionMgr.getHistory(uid, sessionId);
-            String historyStr = SessionManager.formatHistory(history);
-
-            // Try FAQ matching first
-            double faqThreshold = cfg.getFaq().getMatchThreshold();
-            if (faqController.getFaqCount() > 0) {
-                try {
-                    FaqController.FaqMatchResult faqResult = faqController.matchFaq(req.getMsg(), faqThreshold);
-                    if (faqResult != null) {
-                        log.info("faq-matched uid={} query={} score={}",
-                                uid, truncate(req.getMsg(), 50), faqResult.score());
-                        sessionMgr.addMessage(uid, sessionId, "user", req.getMsg());
-                        ctx.writeAndFlush(new DefaultHttpContent(
-                                Unpooled.copiedBuffer("data: \n\n", CharsetUtil.UTF_8)));
-                        ctx.writeAndFlush(new DefaultHttpContent(
-                                Unpooled.copiedBuffer("data: " + faqResult.answer() + "\n\n", CharsetUtil.UTF_8)));
-                        ctx.writeAndFlush(new DefaultHttpContent(
-                                Unpooled.copiedBuffer("data: [DONE]\n\n", CharsetUtil.UTF_8)));
-                        ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-                                .addListener(ChannelFutureListener.CLOSE);
-                        sessionMgr.addMessage(uid, sessionId, "assistant", faqResult.answer());
-                        return;
-                    }
-                } catch (Exception e) {
-                    log.warn("FAQ 匹配失败", e);
-                }
-            }
-
-            // Get KB context
-            LocalDate today = LocalDate.now();
-            String curDate = today.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-            String curWeek = getWeekdayCN(today.getDayOfWeek().getValue());
-
-            String contextStr = kbMgr.searchAllKBs(req.getMsg(), uid,
-                    cfg.getKb().getTopK(), cfg.getKb().getScoreThreshold());
-
-            // Build prompt
-            String promptTemplate = getPromptTemplate();
-            String systemPrompt = buildPrompt(promptTemplate, contextStr, historyStr, req.getMsg(), curDate, curWeek);
-
-            log.info("chat uid={} session={} query={} contextLen={}",
-                    uid, sessionId, truncate(req.getMsg(), 50), contextStr.length());
-
-            // Save user message
-            sessionMgr.addMessage(uid, sessionId, "user", req.getMsg());
-
-            // Send initial event
-            ctx.writeAndFlush(new DefaultHttpContent(
-                    Unpooled.copiedBuffer("data: \n\n", CharsetUtil.UTF_8)));
-
-            // Stream LLM response
-            StringBuilder fullResponse = new StringBuilder();
-
-            getLlmClient().chatStream(systemPrompt, "",
-                    chunk -> {
-                        fullResponse.append(chunk);
-                        ctx.writeAndFlush(new DefaultHttpContent(
-                                Unpooled.copiedBuffer("data: " + chunk + "\n\n", CharsetUtil.UTF_8)));
-                    },
-                    error -> {
-                        log.error("LLM 错误 error={}", error);
-                        ctx.writeAndFlush(new DefaultHttpContent(
-                                Unpooled.copiedBuffer("data: [错误] " + error + "\n\n", CharsetUtil.UTF_8)));
-                    },
-                    () -> {
-                        // Send DONE
-                        ctx.writeAndFlush(new DefaultHttpContent(
-                                Unpooled.copiedBuffer("data: [DONE]\n\n", CharsetUtil.UTF_8)));
-
-                        // Save assistant response
-                        String responseText = fullResponse.toString();
-                        if (!responseText.isEmpty()) {
-                            sessionMgr.addMessage(uid, sessionId, "assistant", responseText);
-                        }
-
-                        ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-                                .addListener(ChannelFutureListener.CLOSE);
-                    });
 
         } catch (Exception e) {
             log.error("chat error", e);
@@ -179,9 +106,94 @@ public class ChatController {
     }
 
     /**
-     * Chat with workflow engine.
+     * KB chat mode — FAQ matching → KB search → LLM conversation.
      */
-    private void chatWithWorkflow(ChannelHandlerContext ctx, ChatRequest req, String uid, String sessionId) {
+    private void chatWithKB(ChannelHandlerContext ctx, ChatRequest req, String uid, String sessionId) {
+        // Get history
+        List<ChatMessage> history = sessionMgr.getHistory(uid, sessionId);
+        String historyStr = SessionManager.formatHistory(history);
+
+        // Try FAQ matching first
+        double faqThreshold = cfg.getFaq().getMatchThreshold();
+        if (faqController.getFaqCount() > 0) {
+            try {
+                FaqController.FaqMatchResult faqResult = faqController.matchFaq(req.getMsg(), faqThreshold);
+                if (faqResult != null) {
+                    log.info("faq-matched uid={} query={} score={}",
+                            uid, truncate(req.getMsg(), 50), faqResult.score());
+                    sessionMgr.addMessage(uid, sessionId, "user", req.getMsg());
+                    ctx.writeAndFlush(new DefaultHttpContent(
+                            Unpooled.copiedBuffer("data: \n\n", CharsetUtil.UTF_8)));
+                    ctx.writeAndFlush(new DefaultHttpContent(
+                            Unpooled.copiedBuffer("data: " + faqResult.answer() + "\n\n", CharsetUtil.UTF_8)));
+                    ctx.writeAndFlush(new DefaultHttpContent(
+                            Unpooled.copiedBuffer("data: [DONE]\n\n", CharsetUtil.UTF_8)));
+                    ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
+                            .addListener(ChannelFutureListener.CLOSE);
+                    sessionMgr.addMessage(uid, sessionId, "assistant", faqResult.answer());
+                    return;
+                }
+            } catch (Exception e) {
+                log.warn("FAQ 匹配失败", e);
+            }
+        }
+
+        // Get KB context
+        LocalDate today = LocalDate.now();
+        String curDate = today.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        String curWeek = getWeekdayCN(today.getDayOfWeek().getValue());
+
+        String contextStr = kbMgr.searchAllKBs(req.getMsg(), uid,
+                cfg.getKb().getTopK(), cfg.getKb().getScoreThreshold());
+
+        // Build prompt
+        String promptTemplate = getPromptTemplate();
+        String systemPrompt = buildPrompt(promptTemplate, contextStr, historyStr, req.getMsg(), curDate, curWeek);
+
+        log.info("chat uid={} session={} query={} contextLen={}",
+                uid, sessionId, truncate(req.getMsg(), 50), contextStr.length());
+
+        // Save user message
+        sessionMgr.addMessage(uid, sessionId, "user", req.getMsg());
+
+        // Send initial event
+        ctx.writeAndFlush(new DefaultHttpContent(
+                Unpooled.copiedBuffer("data: \n\n", CharsetUtil.UTF_8)));
+
+        // Stream LLM response
+        StringBuilder fullResponse = new StringBuilder();
+
+        getLlmClient().chatStream(systemPrompt, "",
+                chunk -> {
+                    fullResponse.append(chunk);
+                    ctx.writeAndFlush(new DefaultHttpContent(
+                            Unpooled.copiedBuffer("data: " + chunk + "\n\n", CharsetUtil.UTF_8)));
+                },
+                error -> {
+                    log.error("LLM 错误 error={}", error);
+                    ctx.writeAndFlush(new DefaultHttpContent(
+                            Unpooled.copiedBuffer("data: [错误] " + error + "\n\n", CharsetUtil.UTF_8)));
+                },
+                () -> {
+                    // Send DONE
+                    ctx.writeAndFlush(new DefaultHttpContent(
+                            Unpooled.copiedBuffer("data: [DONE]\n\n", CharsetUtil.UTF_8)));
+
+                    // Save assistant response
+                    String responseText = fullResponse.toString();
+                    if (!responseText.isEmpty()) {
+                        sessionMgr.addMessage(uid, sessionId, "assistant", responseText);
+                    }
+
+                    ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
+                            .addListener(ChannelFutureListener.CLOSE);
+                });
+    }
+
+    /**
+     * Chat with CSM workflow engine (hardcoded customer service logic).
+     */
+    private void chatWithCSMWorkflow(ChannelHandlerContext ctx, ChatRequest req, String uid, String sessionId) {
         List<ChatMessage> history = sessionMgr.getHistory(uid, sessionId);
         List<TemplateResolver.ChatMsg> historyMsgs = history.stream()
                 .map(h -> new TemplateResolver.ChatMsg(h.getRole(), h.getContent()))
@@ -190,8 +202,8 @@ public class ChatController {
         // Save user message
         sessionMgr.addMessage(uid, sessionId, "user", req.getMsg());
 
-        log.info("workflow-chat uid={} session={} workflow={} query={}",
-                uid, sessionId, req.getWorkflowId(), truncate(req.getMsg(), 50));
+        log.info("workflow-chat-csm uid={} session={} query={}",
+                uid, sessionId, truncate(req.getMsg(), 50));
 
         // Send initial event
         ctx.writeAndFlush(new DefaultHttpContent(
@@ -201,8 +213,74 @@ public class ChatController {
 
         // 【CSM 硬编码模式】直接走 CsmEngine 写死的客服问答逻辑（分类→路由→检索→回答），
         // 不再从数据库加载工作流配置。若需恢复动态配置，放开下面这行、注释掉 executeStreamCSM：
-        // var eventQueue = workflowEngine.executeStream(req.getWorkflowId(), req.getMsg(), uid, historyMsgs);
-        var eventQueue = csmEngine.executeStreamCSM(req.getWorkflowId(), req.getMsg(), uid, historyMsgs);
+        // var eventQueue = workflowEngine.executeStream(0, req.getMsg(), uid, historyMsgs);
+        var eventQueue = csmEngine.executeStreamCSM(0, req.getMsg(), uid, historyMsgs);
+
+        // Process events in a background thread
+        new Thread(() -> {
+            try {
+                while (true) {
+                    EngineEvent evt = eventQueue.take();
+                    switch (evt.getType()) {
+                        case "progress":
+                            ctx.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(
+                                    "data: [步骤 " + evt.getStep() + "/" + evt.getTotal() + "] " + evt.getAgent() + "\n\n",
+                                    CharsetUtil.UTF_8)));
+                            break;
+                        case "chunk":
+                            fullResponse.append(evt.getContent());
+                            ctx.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(
+                                    "data: " + evt.getContent() + "\n\n", CharsetUtil.UTF_8)));
+                            break;
+                        case "error":
+                            log.error("workflow error error={}", evt.getContent());
+                            ctx.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(
+                                    "data: [错误] " + evt.getContent() + "\n\n", CharsetUtil.UTF_8)));
+                            break;
+                        case "done":
+                            // Send DONE
+                            ctx.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(
+                                    "data: [DONE]\n\n", CharsetUtil.UTF_8)));
+
+                            String responseText = fullResponse.toString();
+                            if (!responseText.isEmpty()) {
+                                sessionMgr.addMessage(uid, sessionId, "assistant", responseText);
+                            }
+
+                            ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
+                                    .addListener(ChannelFutureListener.CLOSE);
+                            return;
+                    }
+                }
+            } catch (Exception e) {
+                log.error("workflow event processing error", e);
+            }
+        }).start();
+    }
+
+    /**
+     * Chat with dynamic workflow engine (loads workflow config from DB).
+     */
+    private void chatWithDynamicWorkflow(ChannelHandlerContext ctx, ChatRequest req, String uid, String sessionId) {
+        List<ChatMessage> history = sessionMgr.getHistory(uid, sessionId);
+        List<TemplateResolver.ChatMsg> historyMsgs = history.stream()
+                .map(h -> new TemplateResolver.ChatMsg(h.getRole(), h.getContent()))
+                .collect(Collectors.toList());
+
+        // Save user message
+        sessionMgr.addMessage(uid, sessionId, "user", req.getMsg());
+
+        long workflowId = cfg.getSys().getDefaultWorkflowId();
+        log.info("workflow-chat-dynamic uid={} session={} workflow={} query={}",
+                uid, sessionId, workflowId, truncate(req.getMsg(), 50));
+
+        // Send initial event
+        ctx.writeAndFlush(new DefaultHttpContent(
+                Unpooled.copiedBuffer("data: \n\n", CharsetUtil.UTF_8)));
+
+        StringBuilder fullResponse = new StringBuilder();
+
+        var eventQueue = workflowEngine.executeStream(workflowId, req.getMsg(), uid, historyMsgs);
 
         // Process events in a background thread
         new Thread(() -> {

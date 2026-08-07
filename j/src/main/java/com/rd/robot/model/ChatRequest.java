@@ -15,9 +15,6 @@ public class ChatRequest {
     @JsonProperty("app_source")
     private String appSource;
 
-    @JsonProperty("workflow_id")
-    private long workflowId; // 0 = default mode
-
     public String getMsg() { return msg; }
     public void setMsg(String msg) { this.msg = msg; }
     public String getUid() { return uid; }
@@ -26,6 +23,4 @@ public class ChatRequest {
     public void setSessionId(String sessionId) { this.sessionId = sessionId; }
     public String getAppSource() { return appSource; }
     public void setAppSource(String appSource) { this.appSource = appSource; }
-    public long getWorkflowId() { return workflowId; }
-    public void setWorkflowId(long workflowId) { this.workflowId = workflowId; }
 }

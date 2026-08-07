@@ -95,6 +95,12 @@ func applyConfig(configs map[string]string, cfg *model.Config) {
 	if v, ok := configs["sys.api_auth"]; ok {
 		cfg.Sys.ApiAuth = v == "true"
 	}
+	if v, ok := configs["sys.default_workflow_id"]; ok && v != "" {
+		if v, ok := configs["sys.work_mode"]; ok && v != "" {
+			cfg.Sys.WorkMode, _ = strconv.Atoi(v)
+		}
+		cfg.Sys.DefaultWorkflowID, _ = strconv.ParseInt(v, 10, 64)
+	}
 	if v, ok := configs["api.llm_api_uri"]; ok && v != "" {
 		cfg.API.LLMAPIURI = v
 	}

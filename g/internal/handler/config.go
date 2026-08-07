@@ -46,9 +46,11 @@ type ConfigResponse struct {
 }
 
 type SysConfigResp struct {
-	Name    string `json:"name"`
-	Auth    string `json:"auth"`
-	ApiAuth string `json:"api_auth"`
+	Name              string `json:"name"`
+	Auth              string `json:"auth"`
+	ApiAuth           string `json:"api_auth"`
+	WorkMode          int    `json:"work_mode"`
+	DefaultWorkflowID int64  `json:"default_workflow_id"`
 }
 
 type APIConfigResp struct {
@@ -90,9 +92,11 @@ type FaqConfigResp struct {
 func (h *ConfigHandler) GetConfig(c *gin.Context) {
 	resp := ConfigResponse{
 		Sys: SysConfigResp{
-			Name:    h.cfg.Sys.Name,
-			Auth:    boolToStr(h.cfg.Sys.Auth),
-			ApiAuth: boolToStr(h.cfg.Sys.ApiAuth),
+			Name:              h.cfg.Sys.Name,
+			Auth:              boolToStr(h.cfg.Sys.Auth),
+			ApiAuth:           boolToStr(h.cfg.Sys.ApiAuth),
+			WorkMode:          h.cfg.Sys.WorkMode,
+			DefaultWorkflowID: h.cfg.Sys.DefaultWorkflowID,
 		},
 		API: APIConfigResp{
 			LLMAPIURI:          h.cfg.API.LLMAPIURI,
@@ -144,7 +148,17 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 			return
 		}
 	}
-	// sys.auth 只从 cfg.yml 读取，不允许在页面上修改
+		// 工作模式（始终保存）
+		if err := h.store.SetConfig("sys.work_mode", fmt.Sprintf("%d", req.Sys.WorkMode), "工作模式: 0=KB, 1=CSM, 2=动态工作流"); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存工作模式失败: " + err.Error()})
+			return
+		}
+		// 动态工作流 ID
+		if err := h.store.SetConfig("sys.default_workflow_id", fmt.Sprintf("%d", req.Sys.DefaultWorkflowID), "动态工作流 ID"); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存默认工作流失败: " + err.Error()})
+			return
+		}
+		// sys.auth 只从 cfg.yml 读取，不允许在页面上修改
 	if req.Sys.ApiAuth != "" {
 		if err := h.store.SetConfig("sys.api_auth", req.Sys.ApiAuth, "是否启用接口认证"); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存接口认证配置失败: " + err.Error()})
